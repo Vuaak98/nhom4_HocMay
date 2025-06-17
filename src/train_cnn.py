@@ -1,30 +1,41 @@
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+import json
+import time
+import logging
 import numpy as np
 import pandas as pd
-import json
-import pickle
-import logging
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, Conv1D, GlobalMaxPooling1D, Dense, Dropout, BatchNormalization
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
-from tensorflow.keras.regularizers import l2
+import tensorflow as tf
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, precision_recall_curve
-from sklearn.model_selection import train_test_split
-import tensorflow as tf
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+from tensorflow.keras.models import Sequential, load_model, Model
+from tensorflow.keras.layers import Embedding, Conv1D, GlobalMaxPooling1D, Dense, Dropout, Input, BatchNormalization, MaxPooling1D, Concatenate, Add, Flatten
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.regularizers import l2
+from sklearn.utils.class_weight import compute_class_weight
+import tensorflow.keras.backend as K
+import tensorflow as tfa
+from tensorflow.keras.optimizers import Adam
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from rule_based import RuleBasedFilterFromFile
+import pickle
+import joblib
 
-from src.config import (
-    DATA_DIR, CNN_MODEL_DIR, STOPWORDS_PATH,
+# Thêm thư mục gốc vào sys.path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
+
+from config import (
+    DATA_DIR, CNN_MODEL_DIR,
     DATA_HARD_DIR, TRAIN_HARD_FILE, TEST_HARD_FILE,
-    CNN_CONFIG
+    CNN_CONFIG, RULES_PATH,
+    CNN_MODEL_PATH, CNN_TOKENIZER_PATH,
+    CNN_CONFUSION_MATRIX, CNN_ROC_CURVE, CNN_EVALUATION_PLOT
 )
-from src.data_processing import create_full_features
 
 # Cấu hình logging
 logging.basicConfig(
@@ -36,287 +47,232 @@ logging.basicConfig(
 )
 logger = logging.getLogger('main')
 
+# Đường dẫn file
+TRAIN_CLEANED_FILE = os.path.join(DATA_DIR, 'train_cleaned.csv')
+TEST_CLEANED_FILE = os.path.join(DATA_DIR, 'test_cleaned.csv')
+TOKENIZER_PATH = os.path.join(CNN_MODEL_DIR, 'tokenizer.pkl')
+MODEL_INFO_PATH = os.path.join(CNN_MODEL_DIR, 'model_info.json')
+EVALUATION_PLOT_PATH = os.path.join(CNN_MODEL_DIR, 'evaluation_plots.png')
+
+# Cấu hình mô hình CNN
+CNN_CONFIG = {
+    'max_words': 15000,  # Tăng từ vựng
+    'max_len': 250,      # Tăng độ dài tối đa
+    'embedding_dim': 300,
+    'filters': [128, 256, 512, 1024],  # Thêm một lớp CNN
+    'kernel_size': [2, 3, 4, 5],       # Thêm kernel size nhỏ hơn
+    'hidden_dims': 512,  # Tăng kích thước layer ẩn
+    'dropout_rates': [0.4, 0.5, 0.6],  # Tăng dropout
+    'l2_reg': 0.02,     # Tăng regularization
+    'learning_rate': 0.0005,  # Giảm learning rate
+    'batch_size': 16,   # Giảm batch size
+    'epochs': 100,      # Tăng số epochs
+    'validation_split': 0.2,
+    'early_stopping': {
+        'patience': 15,  # Tăng patience
+        'min_delta': 0.0001
+    },
+    'focal_loss': {
+        'gamma': 3.0,    # Tăng gamma để tập trung hơn vào các mẫu khó
+        'alpha': 0.85    # Tăng alpha để ưu tiên lớp thiểu số (tin giả)
+    }
+}
+
 class CNNTrainer:
-    def __init__(self, config):
-        self.config = config
-        self.tokenizer = None
+    """Lớp huấn luyện mô hình CNN."""
+    
+    def __init__(self):
+        """Khởi tạo trainer."""
         self.model = None
+        self.tokenizer = Tokenizer(
+            num_words=CNN_CONFIG['max_words'],
+            oov_token='<OOV>'
+        )
+        self.scaler = StandardScaler()
         
-        # Tạo thư mục model nếu chưa tồn tại
+        # Tạo thư mục nếu chưa tồn tại
         os.makedirs(CNN_MODEL_DIR, exist_ok=True)
-    
-    def prepare_data(self, texts):
-        """Chuẩn bị dữ liệu cho CNN."""
-        # Chuyển đổi văn bản thành chuỗi số
-        sequences = self.tokenizer.texts_to_sequences(texts)
         
-        # Padding chuỗi
-        padded_sequences = pad_sequences(
-            sequences,
-            maxlen=self.config['max_len'],
-            padding='post',
-            truncating='post'
-        )
+    def prepare_features(self, df: pd.DataFrame, is_training: bool = True) -> tuple:
+        """
+        Chuẩn bị đặc trưng từ DataFrame.
         
-        return padded_sequences
-    
-    def calculate_class_weights(self, y):
-        """Tính toán class weights để xử lý mất cân bằng dữ liệu."""
-        class_counts = np.bincount(y)
-        total_samples = len(y)
-        
-        # Tính toán tỷ lệ mất cân bằng
-        imbalance_ratio = class_counts[0] / class_counts[1]
-        
-        # Áp dụng trọng số cân bằng cho cả hai lớp
-        # Không tăng trọng số cho lớp thiểu số để tránh báo động giả
-        class_weights = {
-            0: 1.0,  # Lớp đa số (tin thật)
-            1: 1.0   # Lớp thiểu số (tin giả) - giữ nguyên để tăng Precision
-        }
-        
-        logger.info(f"Tỷ lệ mất cân bằng: {imbalance_ratio:.2f}")
-        logger.info(f"Class weights: {class_weights}")
-        logger.info("Sử dụng trọng số cân bằng để tối ưu Precision")
-        
-        return class_weights
-    
-    def build_model(self, vocab_size):
-        """Xây dựng mô hình CNN với các kỹ thuật chống overfitting và tăng độ nhạy với tin giả."""
-        model = Sequential([
-            # Lớp Embedding với dropout
-            Embedding(
-                input_dim=vocab_size,
-                output_dim=self.config['embedding_dim'],
-                input_length=self.config['max_len']
-            ),
-            Dropout(self.config['dropout_rates']['embedding']),
+        Args:
+            df: DataFrame chứa dữ liệu
+            is_training: True nếu đang xử lý dữ liệu huấn luyện
             
-            # Lớp Convolution với regularization
-            Conv1D(
-                filters=self.config['filters'],
-                kernel_size=self.config['kernel_size'],
-                activation='relu',
-                kernel_regularizer=l2(self.config['l2_reg'])
-            ),
-            BatchNormalization(),
-            Dropout(self.config['dropout_rates']['conv']),
-            
-            # Lớp Pooling
-            GlobalMaxPooling1D(),
-            
-            # Lớp ẩn với regularization
-            Dense(
-                self.config['hidden_dims'],
-                activation='relu',
-                kernel_regularizer=l2(self.config['l2_reg'])
-            ),
-            BatchNormalization(),
-            Dropout(self.config['dropout_rates']['dense']),
-            
-            # Lớp đầu ra với bias_initializer để tăng độ nhạy với tin giả
-            Dense(1, activation='sigmoid', 
-                  bias_initializer=tf.keras.initializers.Constant(0.1))
-        ])
-        
-        # Biên dịch mô hình với learning rate tùy chỉnh
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.config['learning_rate'])
-        model.compile(
-            optimizer=optimizer,
-            loss='binary_crossentropy',
-            metrics=['accuracy', 'AUC', 'Precision', 'Recall']
-        )
-        
-        return model
-    
-    def train(self, X_train, y_train, X_val=None, y_val=None):
-        """Huấn luyện mô hình CNN với các kỹ thuật tăng độ chính xác."""
-        logger.info("\n--- Bắt đầu Huấn luyện Mô hình CNN ---")
-        
-        # Khởi tạo và huấn luyện tokenizer
-        logger.info("Khởi tạo và huấn luyện tokenizer...")
-        self.tokenizer = Tokenizer(num_words=self.config['max_words'])
-        self.tokenizer.fit_on_texts(X_train)
-        logger.info(f"Kích thước từ điển: {len(self.tokenizer.word_index)}")
-        
-        # Tách validation set nếu chưa có
-        if X_val is None:
-            X_train, X_val, y_train, y_val = train_test_split(
-                X_train, y_train,
-                test_size=self.config['validation_split'],
-                random_state=42,
-                stratify=y_train
-            )
-        
-        # Chuẩn bị dữ liệu
-        logger.info("Chuẩn bị dữ liệu...")
-        X_train_seq = self.prepare_data(X_train)
-        X_val_seq = self.prepare_data(X_val)
-        
-        # Tính toán class weights
-        class_weights = self.calculate_class_weights(y_train)
-        
-        # Xây dựng mô hình
-        logger.info("Xây dựng mô hình...")
-        vocab_size = min(self.config['max_words'], len(self.tokenizer.word_index) + 1)
-        self.model = self.build_model(vocab_size)
-        
-        # Callbacks với focus vào Precision
-        callbacks = [
-            EarlyStopping(
-                monitor='val_precision',
-                mode='max',
-                patience=self.config['early_stopping']['patience'],
-                min_delta=self.config['early_stopping']['min_delta'],
-                restore_best_weights=True,
-                verbose=1
-            ),
-            ModelCheckpoint(
-                filepath=os.path.join(CNN_MODEL_DIR, 'best_model.h5'),
-                monitor='val_precision',
-                mode='max',
-                save_best_only=True,
-                verbose=1
-            ),
-            ReduceLROnPlateau(
-                monitor='val_precision',
-                mode='max',
-                factor=0.2,
-                patience=3,
-                min_lr=1e-6,
-                verbose=1
-            )
+        Returns:
+            tuple: (text_features, numeric_features)
+        """
+        # Lấy các cột số hữu ích
+        numeric_features = [
+            'num_like_post',
+            'num_comment_post',
+            'num_share_post'
         ]
         
-        # Huấn luyện với class weights
-        logger.info("Bắt đầu huấn luyện...")
-        history = self.model.fit(
-            X_train_seq,
-            y_train,
-            batch_size=self.config['batch_size'],
-            epochs=self.config['epochs'],
-            validation_data=(X_val_seq, y_val),
-            callbacks=callbacks,
-            class_weight=class_weights,
-            verbose=1
+        # Log các đặc trưng đang sử dụng
+        logger.info("\n=== Các đặc trưng đang sử dụng ===")
+        logger.info("1. Đặc trưng số:")
+        for feat in numeric_features:
+            logger.info(f"   - {feat}")
+        logger.info("2. Đặc trưng văn bản:")
+        logger.info("   - post_message")
+        logger.info(f"Tổng số đặc trưng số: {len(numeric_features)}")
+        
+        # Xử lý đặc trưng văn bản
+        if is_training:
+            self.tokenizer.fit_on_texts(df['post_message'].fillna(''))
+        
+        sequences = self.tokenizer.texts_to_sequences(df['post_message'].fillna(''))
+        text_features = pad_sequences(sequences, maxlen=CNN_CONFIG['max_len'])
+
+        # Xử lý đặc trưng số
+        numeric_features = df[numeric_features].values
+        if is_training:
+            numeric_features = self.scaler.fit_transform(numeric_features)
+        else:
+            numeric_features = self.scaler.transform(numeric_features)
+        
+        return text_features, numeric_features
+    
+    def build_model(self, vocab_size: int, num_numeric_features: int):
+        """
+        Xây dựng mô hình CNN.
+        
+        Args:
+            vocab_size: Kích thước từ điển
+            num_numeric_features: Số lượng đặc trưng số
+        """
+        # Input cho văn bản
+        text_input = Input(shape=(CNN_CONFIG['max_len'],), name='text_input')
+        embedding = Embedding(vocab_size, CNN_CONFIG['embedding_dim'])(text_input)
+        
+        # CNN cho văn bản
+        conv1 = Conv1D(128, 5, activation='relu')(embedding)
+        pool1 = MaxPooling1D(5)(conv1)
+        conv2 = Conv1D(128, 5, activation='relu')(pool1)
+        pool2 = MaxPooling1D(5)(conv2)
+        conv3 = Conv1D(128, 5, activation='relu')(pool2)
+        pool3 = MaxPooling1D(5)(conv3)
+        text_features = Flatten()(pool3)
+        
+        # Input cho đặc trưng số
+        numeric_input = Input(shape=(num_numeric_features,), name='numeric_input')
+        numeric_dense = Dense(64, activation='relu')(numeric_input)
+        numeric_dense = BatchNormalization()(numeric_dense)
+        numeric_dense = Dropout(0.3)(numeric_dense)
+        
+        # Kết hợp đặc trưng
+        combined = Concatenate()([text_features, numeric_dense])
+        dense = Dense(128, activation='relu')(combined)
+        dense = BatchNormalization()(dense)
+        dense = Dropout(0.3)(dense)
+        output = Dense(1, activation='sigmoid')(dense)
+        
+        # Tạo mô hình
+        self.model = Model(inputs=[text_input, numeric_input], outputs=output)
+        
+        # Compile mô hình
+        self.model.compile(
+            optimizer=Adam(learning_rate=CNN_CONFIG['learning_rate']),
+            loss='binary_crossentropy',
+            metrics=['accuracy']
         )
         
-        logger.info("✅ Huấn luyện hoàn tất.")
-        return history
-    
-    def evaluate(self, X_test, y_test):
-        """Đánh giá mô hình trên tập test."""
-        if self.model is None:
-            logger.error("Lỗi: Mô hình chưa được huấn luyện.")
-            return
-        
-        logger.info("\n--- Đánh giá Mô hình CNN trên tập TEST ---")
-        
-        # Chuẩn bị dữ liệu test
-        X_test_seq = self.prepare_data(X_test)
-        
-        # Dự đoán
-        y_pred_proba = self.model.predict(X_test_seq)
-        y_pred = (y_pred_proba > 0.5).astype(int)
-        
-        # In báo cáo phân loại
-        logger.info("\nBáo cáo Phân loại (Classification Report):")
-        logger.info(classification_report(y_test, y_pred, target_names=['Tin Thật (0)', 'Tin Giả (1)']))
-        
-        # Vẽ biểu đồ
-        self._plot_evaluation_results(y_test, y_pred, y_pred_proba)
-    
-    def _plot_evaluation_results(self, y_true, y_pred, y_pred_proba):
-        """Vẽ các biểu đồ đánh giá."""
-        plt.figure(figsize=(20, 15))
-        
-        # Confusion Matrix
-        plt.subplot(2, 2, 1)
-        cm = confusion_matrix(y_true, y_pred)
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-        plt.title('Confusion Matrix')
-        plt.xlabel('Predicted')
-        plt.ylabel('True')
-        
-        # ROC Curve
-        plt.subplot(2, 2, 2)
-        fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
-        roc_auc = auc(fpr, tpr)
-        plt.plot(fpr, tpr, color='darkorange', lw=2, 
-                label=f'ROC curve (AUC = {roc_auc:.4f})')
-        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-        plt.title('Đường cong ROC')
-        plt.legend(loc="lower right")
-        
-        # Precision-Recall Curve
-        plt.subplot(2, 2, 3)
-        precision, recall, _ = precision_recall_curve(y_true, y_pred_proba)
-        pr_auc = auc(recall, precision)
-        plt.plot(recall, precision, color='blue', lw=2, 
-                label=f'PR curve (AUC = {pr_auc:.4f})')
-        plt.title('Đường cong Precision-Recall')
-        plt.legend(loc="lower left")
-        
-        # Distribution of Predictions
-        plt.subplot(2, 2, 4)
-        plt.hist(y_pred_proba, bins=50, alpha=0.5, label='Phân phối điểm dự đoán')
-        plt.title('Phân phối điểm dự đoán')
-        plt.xlabel('Điểm dự đoán')
-        plt.ylabel('Số lượng')
-        
-        plt.suptitle('Biểu đồ Đánh giá Hiệu suất Mô hình CNN', fontsize=16)
-        plt.tight_layout()
-        plt.show()
-    
-    def save_model(self):
-        """Lưu mô hình và tokenizer."""
-        if self.model is None:
-            logger.error("Lỗi: Mô hình chưa được huấn luyện.")
-            return
-        
-        # Lưu mô hình
-        model_path = os.path.join(CNN_MODEL_DIR, 'cnn_model.h5')
-        self.model.save(model_path)
-        
-        # Lưu tokenizer
-        tokenizer_path = os.path.join(CNN_MODEL_DIR, 'tokenizer.pkl')
-        with open(tokenizer_path, 'wb') as f:
-            pickle.dump(self.tokenizer, f)
-        
-        logger.info(f"\n✅ Đã lưu mô hình CNN vào: {model_path}")
-        logger.info(f"✅ Đã lưu tokenizer vào: {tokenizer_path}")
+        # In thông tin mô hình
+        self.model.summary()
+
+    def train(self):
+        """Huấn luyện mô hình CNN."""
+        try:
+            # 1. Đọc dữ liệu
+            df_train = pd.read_csv(TRAIN_HARD_FILE, encoding='utf-8')
+            df_test = pd.read_csv(TEST_HARD_FILE, encoding='utf-8')
+
+            # Lọc bỏ các mẫu có nhãn -1
+            df_train = df_train[df_train['label'].isin([0, 1])].copy()
+            df_test = df_test[df_test['label'].isin([0, 1])].copy()
+            
+            logger.info("\n=== Phân phối dữ liệu ===")
+            logger.info(f"Tập train: {len(df_train)} mẫu")
+            logger.info(f"- Tin thật: {len(df_train[df_train['label'] == 0])}")
+            logger.info(f"- Tin giả: {len(df_train[df_train['label'] == 1])}")
+
+            # 2. Chuẩn bị đặc trưng
+            logger.info("\n=== Chuẩn bị đặc trưng ===")
+            X_train_text, X_train_numeric = self.prepare_features(df_train, is_training=True)
+            X_test_text, X_test_numeric = self.prepare_features(df_test, is_training=False)
+
+            y_train = df_train['label'].values
+            y_test = df_test['label'].values
+
+            # 3. Xây dựng mô hình
+            vocab_size = len(self.tokenizer.word_index) + 1
+            self.build_model(vocab_size, X_train_numeric.shape[1])
+            
+            # 4. Callbacks
+            callbacks = [
+                ModelCheckpoint(
+                    os.path.join(CNN_MODEL_DIR, 'best_model.h5'),
+                    monitor='val_accuracy',
+                    save_best_only=True,
+                    mode='max',
+                    verbose=1
+                ),
+                EarlyStopping(
+                    monitor='val_accuracy',
+                    patience=5,
+                    restore_best_weights=True,
+                    verbose=1
+                ),
+                ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.2,
+                    patience=3,
+                    min_lr=1e-6,
+                    verbose=1
+                )
+            ]
+            
+            # 5. Huấn luyện
+            logger.info("\n=== Huấn luyện CNN ===")
+            history = self.model.fit(
+                [X_train_text, X_train_numeric],
+                y_train,
+                validation_data=([X_test_text, X_test_numeric], y_test),
+                epochs=CNN_CONFIG['epochs'],
+                batch_size=CNN_CONFIG['batch_size'],
+                callbacks=callbacks,
+                verbose=1
+            )
+            
+            # 6. Đánh giá
+            logger.info("\n=== Đánh giá mô hình ===")
+            y_pred = (self.model.predict([X_test_text, X_test_numeric]) > 0.5).astype(int)
+            logger.info("\nBáo cáo Phân loại (Classification Report):")
+            logger.info(classification_report(y_test, y_pred, target_names=['Tin Thật (0)', 'Tin Giả (1)']))
+            
+            # 7. Lưu mô hình và tokenizer
+            self.model.save(os.path.join(CNN_MODEL_DIR, 'final_model.h5'))
+            with open(os.path.join(CNN_MODEL_DIR, 'tokenizer.pkl'), 'wb') as f:
+                pickle.dump(self.tokenizer, f)
+            joblib.dump(self.scaler, os.path.join(CNN_MODEL_DIR, 'scaler.joblib'))
+            
+            logger.info(f"✅ Đã lưu mô hình CNN tại {CNN_MODEL_DIR}")
+            
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi huấn luyện mô hình CNN: {str(e)}")
+            raise
+
+def main():
+    """Hàm chính để chạy huấn luyện CNN."""
+    try:
+        trainer = CNNTrainer()
+        trainer.train()
+    except Exception as e:
+        logger.error(f"❌ Lỗi: {str(e)}")
+        raise
 
 if __name__ == "__main__":
-    logger.info("\n\n" + "="*20 + " BẮT ĐẦU THÍ NGHIỆM CNN " + "="*20)
-    
-    # 1. Tải và xử lý dữ liệu
-    logger.info("\n1. Đang tải và xử lý dữ liệu...")
-    
-    df_train_raw = pd.read_csv(TRAIN_HARD_FILE, encoding='utf-8')
-    df_test_raw = pd.read_csv(TEST_HARD_FILE, encoding='utf-8')
-    
-    logger.info(f"   - Kích thước tập train (tin khó): {df_train_raw.shape}")
-    logger.info(f"   - Kích thước tập test (tin khó): {df_test_raw.shape}")
-    logger.info(f"   - Phân bố nhãn trong tập train:")
-    logger.info(df_train_raw['label'].value_counts(normalize=True).to_string())
-    logger.info(f"   - Phân bố nhãn trong tập test:")
-    logger.info(df_test_raw['label'].value_counts(normalize=True).to_string())
-    
-    logger.info("\n   - Đang xử lý dữ liệu train...")
-    df_train_processed = create_full_features(df_train_raw, stopwords_path=STOPWORDS_PATH, df_name="Train Hard")
-    logger.info("\n   - Đang xử lý dữ liệu test...")
-    df_test_processed = create_full_features(df_test_raw, stopwords_path=STOPWORDS_PATH, df_name="Test Hard")
-
-    # 2. Chuẩn bị dữ liệu cho CNN
-    logger.info("\n2. Chuẩn bị dữ liệu cho CNN...")
-    X_train = df_train_processed['cleaned_message']
-    y_train = df_train_processed['label']
-    X_test = df_test_processed['cleaned_message']
-    y_test = df_test_processed['label']
-    
-    # 3. Huấn luyện, đánh giá, lưu mô hình
-    logger.info("\n3. Bắt đầu huấn luyện mô hình...")
-    cnn_trainer = CNNTrainer(CNN_CONFIG)
-    history = cnn_trainer.train(X_train, y_train)
-    cnn_trainer.evaluate(X_test, y_test)
-    cnn_trainer.save_model()
+    main()

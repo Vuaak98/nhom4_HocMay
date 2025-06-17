@@ -1,183 +1,222 @@
 {
-    "comment": "Rule structure v16.1 - Enhanced version with improved text formatting detection",
+    "version": "8.0_RealNewsScreener",
+    "description": "Bộ luật được tối ưu hóa để sàng lọc tin thật với độ chính xác cao nhất.",
+    
+    "pattern_components": {
+        "authoritative_source": {
+            "comment": "Các nguồn tin chính thống, có độ tin cậy cao.",
+            "keywords": [
+                "bộ y tế", "ttxvn", "ủy ban kiểm tra", "báo công an nhân dân", 
+                "chính phủ", "thủ tướng", "bộ giáo dục", "bộ công an", 
+                "sở y tế", "sở gd&đt", "công an tỉnh", "báo tuổi trẻ", 
+                "báo nhân dân", "báo dân trí", "báo pháp luật", "vnexpress", 
+                "vietnamnet", "antv", "bệnh viện", "viện vệ sinh dịch tễ", 
+                "cdc", "trung tâm kiểm soát bệnh tật", "bộ trưởng", 
+                "ủy ban nhân dân", "thông cáo báo chí", "quyết định số",
+                "công an cho biết", "theo nguồn tin", "lực lượng chức năng",
+                "cơ quan chức năng", "cơ quan điều tra", "cơ quan công an",
+                "theo ghi nhận của phóng viên", "tại hiện trường",
+                "cơ quan điều tra cho biết", "đã có kết quả xét nghiệm",
+                "được công bố khỏi bệnh", "theo thông tin từ cơ quan chức năng",
+                "theo báo cáo của cơ quan điều tra", "theo kết luận của cơ quan chức năng"
+            ],
+            "weight": -5.0
+        },
+        "informative_tone": {
+            "comment": "Các từ ngữ mang văn phong báo chí, thông tin.",
+            "keywords": [
+                "thông báo", "cho biết", "ghi nhận", "quyết định", 
+                "khẳng định", "xác nhận", "công bố", "chỉ đạo", 
+                "yêu cầu", "triển khai", "báo cáo", "theo", 
+                "liên quan đến", "theo thông tin từ", "phát biểu", 
+                "tuyên bố", "thông tin chính thức", "theo nguồn tin",
+                "theo điều tra", "theo kết quả", "theo báo cáo",
+                "theo thống kê", "theo số liệu", "theo kết luận"
+            ],
+            "weight": -2.0
+        },
+        "pseudoscience_hoax": {
+            "comment": "Các tuyên bố giả khoa học, tin vịt, thông tin sai lệch trầm trọng.",
+            "keywords": [
+                "thần dược", "chữa khỏi hoàn toàn", "năng lượng vũ trụ", 
+                "uống nước tiểu", "khẩu trang tẩm muối", "virus biến dạng", 
+                "covid-20", "tự kiểm tra covid", "miễn nhiễm với bệnh", 
+                "chữa bách bệnh", "thuốc thần kỳ", "phương thuốc bí truyền",
+                "chữa khỏi 100%", "không cần thuốc", "tự chữa tại nhà",
+                "bí quyết dân gian", "thuốc nam gia truyền",
+                "thuốc tiên", "thuốc thánh", "thuốc thần",
+                "chữa khỏi tức thì", "chữa khỏi ngay lập tức",
+                "thuốc gia truyền", "thuốc bí truyền", "thuốc cổ truyền",
+                "thuốc dân gian", "thuốc nam", "thuốc bắc",
+                "thuốc đông y", "thuốc y học cổ truyền",
+                "chữa khỏi bệnh", "chữa dứt điểm", "chữa tận gốc",
+                "chữa khỏi hoàn toàn", "chữa khỏi vĩnh viễn",
+                "chữa khỏi ung thư", "chữa khỏi tiểu đường",
+                "chữa khỏi huyết áp", "chữa khỏi tim mạch",
+                "chữa khỏi xương khớp", "chữa khỏi dạ dày",
+                "chữa khỏi gan", "chữa khỏi thận",
+                "chữa khỏi phổi", "chữa khỏi não",
+                "chữa khỏi covid", "chữa khỏi corona",
+                "chữa khỏi virus", "chữa khỏi viêm phổi",
+                "chữa khỏi viêm họng", "chữa khỏi viêm xoang",
+                "chữa khỏi viêm mũi", "chữa khỏi viêm tai",
+                "chữa khỏi viêm mắt", "chữa khỏi viêm da"
+            ],
+            "weight": 10.0
+        },
+        "advertisement_spam": {
+            "comment": "Các từ khóa đặc trưng cho quảng cáo, spam, bán hàng.",
+            "keywords": [
+                "mua ngay", "giảm giá", "khuyến mãi", "ship tận nơi", 
+                "liên hệ", "inbox", "đặt hàng", "hotline", "ưu đãi", 
+                "tặng kèm", "combo", "chỉ còn", "giới hạn", "đặt cọc", 
+                "bán sỉ", "miễn phí vận chuyển", "giảm giá sốc", 
+                "giá tốt nhất", "giá rẻ nhất", "giá gốc", "giá sỉ",
+                "giá lẻ", "giá thị trường", "giá đặc biệt",
+                "giá hời", "giá rẻ bất ngờ", "giá sốc"
+            ],
+            "weight": 8.0
+        },
+        "scam_call_to_action": {
+            "comment": "Các cụm từ kêu gọi hành động đáng ngờ, có dấu hiệu lừa đảo.",
+            "keywords": [
+                "chia sẻ ngay", "lan truyền", "cảnh báo lừa đảo", 
+                "chuyển tiền", "nhận thưởng", "trúng thưởng", 
+                "gửi mã otp", "nhấp vào link", "bấm vào đây", 
+                "đăng ký ngay", "nhận quà", "kêu gọi", "ủng hộ", 
+                "quyên góp", "chuyển khoản", "xác nhận thông tin",
+                "cập nhật thông tin", "xác minh tài khoản",
+                "click vào đây", "bấm vào link", "truy cập ngay",
+                "nhận tiền", "nhận thưởng", "nhận quà",
+                "nhận mã", "nhận code", "nhận voucher",
+                "nhận coupon", "nhận ưu đãi", "nhận khuyến mãi",
+                "chuyển khoản ngay", "chuyển tiền ngay", "chuyển tiền gấp",
+                "chuyển khoản gấp", "chuyển tiền khẩn cấp", "chuyển khoản khẩn cấp",
+                "gửi tiền ngay", "gửi khoản ngay", "gửi tiền gấp",
+                "gửi khoản gấp", "gửi tiền khẩn cấp", "gửi khoản khẩn cấp",
+                "nạp tiền ngay", "nạp khoản ngay", "nạp tiền gấp",
+                "nạp khoản gấp", "nạp tiền khẩn cấp", "nạp khoản khẩn cấp",
+                "thanh toán ngay", "thanh toán gấp", "thanh toán khẩn cấp",
+                "trả tiền ngay", "trả tiền gấp", "trả tiền khẩn cấp",
+                "đóng tiền ngay", "đóng tiền gấp", "đóng tiền khẩn cấp"
+            ],
+            "weight": 6.0
+        },
+        "unverified_source": {
+            "comment": "Các nguồn tin không rõ ràng, mang tính cá nhân, đồn đoán.",
+            "keywords": [
+                "nguồn tin nội bộ", "tin hành lang", "hiệp hội du lịch", 
+                "bác sĩ nhật bản", "một thạc sĩ", "gia đình tôi", 
+                "bản thân tôi", "tôi nghĩ", "bạn tôi", "mình nghe",
+                "theo một số nguồn tin", "theo thông tin chưa xác thực",
+                "theo nguồn tin riêng", "theo một số chuyên gia",
+                "theo một số người dân", "theo một số nhà khoa học",
+                "theo một số người", "theo một số nguồn",
+                "theo một số thông tin", "theo một số tin đồn"
+            ],
+            "weight": 3.0
+        },
+        "sensationalism": {
+            "comment": "Các từ khóa giật gân, câu view.",
+            "keywords": [
+                "chấn động", "tin nóng", "kinh hoàng", "khủng khiếp", 
+                "cực kỳ", "vô cùng", "clip nóng", "bóc phốt", 
+                "sốc", "bất ngờ", "không thể tin nổi", "gây sốc",
+                "gây chấn động", "gây bất ngờ", "gây kinh ngạc",
+                "gây xôn xao", "gây tranh cãi", "gây bức xúc",
+                "gây phẫn nộ", "gây bất bình", "gây phản đối",
+                "gây lo ngại", "gây hoang mang", "gây hoảng loạn"
+            ],
+            "weight": 2.0
+        },
+        "critical_tone": {
+            "comment": "Các từ ngữ mang tính chỉ trích, mỉa mai, thiếu xây dựng.",
+            "keywords": [
+                "vô lý thật", "ăn hơi dày", "không phân biệt được", 
+                "bị tố lừa", "chúa chổm", "ngạo nghễ", "vô trách nhiệm",
+                "thiếu chuyên nghiệp", "thiếu minh bạch", "thiếu công bằng",
+                "thiếu khách quan", "thiếu trung thực", "thiếu đạo đức",
+                "thiếu tôn trọng", "thiếu nghiêm túc", "thiếu chuẩn mực"
+            ],
+            "weight": 2.0
+        },
+        "emotional_manipulation": {
+            "comment": "Các từ ngữ kích động cảm xúc, thao túng tâm lý.",
+            "keywords": [
+                "đau lòng", "xót xa", "thương tâm", "đáng thương",
+                "tội nghiệp", "khổ sở", "bất công", "oan ức",
+                "bức xúc", "phẫn nộ", "tức giận", "không thể chấp nhận",
+                "không thể tha thứ", "không thể bỏ qua",
+                "đau đớn", "xót xa", "thương tâm", "đau thương",
+                "tang thương", "bi thảm", "thảm họa", "thảm kịch"
+            ],
+            "weight": 1.2
+        },
+        "urgency_pressure": {
+            "comment": "Các từ ngữ tạo áp lực thời gian, thúc giục hành động.",
+            "keywords": [
+                "ngay lập tức", "khẩn cấp", "cấp bách", "không thể chờ đợi",
+                "sắp hết hạn", "sắp kết thúc", "chỉ còn", "cuối cùng",
+                "lần cuối", "cơ hội cuối", "không còn thời gian",
+                "phải nhanh chóng", "phải ngay lập tức",
+                "phải gấp", "phải khẩn trương", "phải cấp tốc",
+                "phải ngay", "phải lập tức", "phải tức thì"
+            ],
+            "weight": 4.0
+        }
+    },
+    
+    "exemption_keywords": {
+        "comment": "Nếu tin tức chứa các từ khóa này, nó sẽ được 'miễn trừ' khỏi một số luật phạt.",
+        "is_official_report": [
+            "báo", "vtv", "ttxvn", "thông cáo báo chí", 
+            "theo chỉ đạo của", "theo quyết định số", 
+            "bộ y tế xác nhận", "chính thức", "xác nhận chính thức",
+            "công an cho biết", "theo nguồn tin", "lực lượng chức năng",
+            "cơ quan chức năng", "cơ quan điều tra", "cơ quan công an",
+            "theo điều tra", "theo kết quả", "theo báo cáo",
+            "theo thống kê", "theo số liệu", "theo kết luận",
+            "theo ghi nhận của phóng viên", "tại hiện trường",
+            "cơ quan điều tra cho biết", "đã có kết quả xét nghiệm",
+            "được công bố khỏi bệnh", "theo thông tin từ cơ quan chức năng",
+            "theo báo cáo của cơ quan điều tra", "theo kết luận của cơ quan chức năng"
+        ]
+    },
 
-    "authoritative_entities": [
-        "bộ y tế", "ttxvn", "ủy ban kiểm tra", "báo công an", "vietnam airlines",
-        "bộ giáo dục", "bộ công an", "sở y tế", "chính phủ", "thủ tướng",
-        "vnexpress", "dantri", "vtv", "tuổi trẻ", "thanh niên",
-        "bệnh viện", "trung tâm kiểm soát bệnh tật", "ban chỉ đạo quốc gia",
-        "công an thành phố", "tòa án nhân dân", "bộ thông tin truyền thông",
-        "bộ ngoại giao", "bộ tài chính", "ủy ban nhân dân", "hội đồng nhân dân",
-        "viện kiểm sát", "cục an toàn thông tin", "thanh tra chính phủ",
-        "kiểm toán nhà nước", "ngân hàng nhà nước", "tổng cục thống kê",
-        "bảo hiểm xã hội việt nam", "phó giáo sư", "tiến sĩ", "chuyên gia",
-        "trường đại học", "bác sĩ", "giảng viên", "nhà nghiên cứu",
-        "viện nghiên cứu", "trung tâm nghiên cứu", "hội đồng khoa học",
-        "ban chuyên môn", "tổ chuyên gia", "đoàn công tác", "đoàn kiểm tra",
-        "đoàn thanh tra", "đoàn giám sát", "đoàn thẩm định", "đoàn đánh giá"
-    ],
+    "patterns_for_filtering": {
+        "comment": "CHỈ CÓ MỘT MẪU DUY NHẤT: XÁC ĐỊNH TIN TỨC CHẮC CHẮN LÀ THẬT",
+        
+        "reliable_real_pattern": {
+            "comment": "Mẫu tin thật, yêu cầu rất cao: phải có cả nguồn tin và văn phong báo chí.",
+            "must_have": ["authoritative_source", "informative_tone"],
+            "must_not_have": [
+                "pseudoscience_hoax", 
+                "scam_call_to_action",
+                "advertisement_spam",
+                "critical_tone"
+            ]
+        }
+    },
 
-    "official_actions": [
-        "thông báo", "cho biết", "công bố", "xác nhận", "quyết định",
-        "kết luận điều tra", "ban hành", "phê duyệt", "chỉ đạo",
-        "theo thông tin từ", "ra quyết định", "kỷ luật", "khởi tố",
-        "tạm giữ hình sự", "thi hành án", "theo nghị định",
-        "báo cáo chính thức", "khuyến cáo", "bác bỏ thông tin",
-        "thông tin chính thức", "phát ngôn", "họp báo", "tuyên bố",
-        "đính chính", "làm rõ", "giải thích", "khẳng định",
-        "phủ nhận", "bác bỏ", "xác minh", "kiểm tra", "dự báo",
-        "nhận định", "phân tích", "đánh giá", "kiến nghị",
-        "thông tin từ", "theo nguồn tin", "theo báo cáo", "theo thống kê",
-        "theo điều tra", "theo nghiên cứu", "theo khảo sát", "theo thăm dò",
-        "theo phỏng vấn", "theo kết quả", "theo số liệu", "theo báo cáo",
-        "theo thông tin chính thức", "theo thông tin từ cơ quan chức năng"
-    ],
-
-    "risk_urgency": [
-        "khẩn cấp", "nóng", "breaking", "alert", "sos", "gấp",
-        "ngay lập tức", "không thể chậm trễ", "cập nhật liên tục",
-        "tin mới nhất", "vừa xảy ra", "đang diễn ra", "hot nhất",
-        "trending", "viral", "cập nhật dc", "mới đây", "vừa qua",
-        "hôm nay", "ngày hôm nay", "hiện tại", "lúc này", "ngay bây giờ",
-        "không thể chờ đợi", "phải biết ngay", "cần biết ngay",
-        "cảnh báo khẩn", "thông báo khẩn", "tin khẩn", "tin gấp",
-        "tin nóng", "tin mới", "tin mới nhất", "tin vừa nhận được",
-        "tin vừa cập nhật", "tin vừa phát hiện", "tin vừa xảy ra",
-        "tin đang diễn ra", "tin đang phát triển", "tin đang cập nhật"
-    ],
-
-    "risk_emotional_hyperbole": [
-        "gây sốc", "không thể tin nổi", "kinh hoàng", "rùng mình",
-        "đau lòng", "xót xa", "phẫn nộ", "bức xúc", "tức giận",
-        "thảm khốc", "thảm họa", "thảm kịch", "nguy hiểm chết người",
-        "tử thần", "ác mộng", "địa ngục", "tận thế", "chấn động",
-        "bùng nổ", "dậy sóng", "xôn xao", "chưa từng có trong lịch sử",
-        "lần đầu tiên trên thế giới", "khủng khiếp nhất", "tệ hại nhất",
-        "đáng sợ nhất", "hiếm gặp", "độc nhất vô nhị", "bất thường",
-        "đột biến", "lạ lùng", "kỳ quái", "nhung nhúc", "giòi bọ",
-        "đáng thương", "khủng hoảng", "xáo trộn", "ám ảnh", "nặng nề",
-        "dài", "gay gắt", "tiêu cực", "đau lòng", "phẫn nộ",
-        "kinh hoàng", "rùng mình", "sợ hãi", "hoảng loạn", "bàng hoàng",
-        "sững sờ", "choáng váng", "đau đớn", "xót xa", "thương tâm",
-        "bi thảm", "thảm họa", "thảm kịch", "thảm cảnh", "thảm trạng"
-    ],
-
-    "risk_conspiracy_pseudoscience": [
-        "vũ khí sinh học", "âm mưu của chính phủ", "che giấu sự thật",
-        "thuyết âm mưu", "gắn chip", "big pharma", "bill gates tạo ra virus",
-        "thần dược", "chữa khỏi hoàn toàn", "năng lượng vũ trụ",
-        "chữa ung thư bằng lá", "thải độc cơ thể", "kiềm hóa",
-        "tỏi chữa covid", "súc họng nước muối", "chữa dứt điểm",
-        "phương thuốc bí truyền", "công thức đơn giản", "bí thuật dân gian",
-        "thuốc nam thần kỳ", "uống nước nóng chữa bệnh", "vitamin c liều cao",
-        "thuốc đông y bí truyền", "phương pháp tự nhiên 100%",
-        "thảo dược quý hiếm", "bài thuốc gia truyền", "chữa bách bệnh",
-        "miễn dịch cộng đồng tự nhiên", "virus nhân tạo", "chiến tranh sinh học",
-        "chất chlorine dioxide", "mms", "ăn trứng luộc", "đứa bé đã biết nói",
-        "tự kiểm tra", "tự bảo vệ", "lời khuyên của bác sĩ", "triệu chứng",
-        "dấu hiệu bị lây nhiễm", "sống sót", "bị lây nhiễm", "ho nhiều",
-        "đau ngực", "khó thở", "nhức đầu", "tiêu chảy",
-        "âm mưu", "bí mật", "che giấu", "giấu giếm", "giấu nhẹm",
-        "giấu biệt", "giấu kín", "giấu kỹ", "giấu kín", "giấu nhẹm",
-        "giấu biệt", "giấu kín", "giấu kỹ", "giấu kín", "giấu nhẹm"
-    ],
-
-    "risk_unverified_sources": [
-        "nguồn tin nội bộ", "nguồn tin riêng", "anh bạn làm bác sĩ",
-        "người nhà làm ở", "cập nhật dc", "nghe đồn", "tin hành lang",
-        "tin chưa kiểm chứng", "thông tin độc quyền", "bác sĩ không muốn tiết lộ",
-        "chuyên gia giấu tên", "ai đó nói", "theo như nghe được",
-        "có tin đồn", "được biết", "tin từ bên trong", "nguồn tin đáng tin cậy",
-        "theo lá đơn", "theo dự báo", "theo giải thích", "theo nhận định",
-        "theo phân tích", "theo đánh giá", "theo kiến nghị", "theo thông tin",
-        "theo nguồn tin", "theo báo cáo", "theo thống kê", "theo điều tra",
-        "theo nghiên cứu", "theo khảo sát", "theo thăm dò", "theo phỏng vấn",
-        "nguồn tin riêng", "nguồn tin nội bộ", "nguồn tin đáng tin cậy",
-        "nguồn tin chính thức", "nguồn tin chính thống", "nguồn tin đáng tin",
-        "nguồn tin đáng tin cậy", "nguồn tin đáng tin tưởng", "nguồn tin đáng tin tưởng",
-        "nguồn tin đáng tin cậy", "nguồn tin đáng tin tưởng", "nguồn tin đáng tin tưởng"
-    ],
-
-    "risk_call_to_action": [
-        "hãy share để cứu người", "chia sẻ cho mọi người cùng biết",
-        "vui lòng chia sẻ", "hãy bình tĩnh", "đừng tin lời chính quyền",
-        "share điên đảo", "lan truyền", "share ngay", "tag bạn bè",
-        "để cảnh báo mọi người", "đừng để muộn", "nhanh tay chia sẻ",
-        "ai cũng nên biết", "nếu không chia sẻ sẽ hối hận",
-        "đừng để người thân bị hại", "bạn có lương tâm không",
-        "ai không chia sẻ là vô tâm", "hãy làm đúng", "hãy làm theo",
-        "hãy thực hiện", "hãy áp dụng", "hãy tuân thủ", "hãy chấp hành",
-        "hãy thực hiện ngay", "hãy làm ngay", "hãy thực hiện ngay lập tức",
-        "hãy chia sẻ", "hãy tag", "hãy comment", "hãy like", "hãy follow",
-        "hãy subscribe", "hãy view", "hãy share", "hãy lan truyền",
-        "hãy phát tán", "hãy phổ biến", "hãy truyền bá", "hãy phát tán",
-        "hãy lan truyền", "hãy phổ biến", "hãy truyền bá", "hãy phát tán"
-    ],
-
-    "risk_social_media_hype": [
-        "viral", "trending", "hot", "bùng nổ mạng xã hội", "dậy sóng",
-        "cộng đồng mạng phẫn nộ", "netizen tranh cãi", "dân mạng xôn xao",
-        "clip gây sốt", "bài viết triệu view", "comment bùng nổ",
-        "reaction khủng", "engagement cao ngất", "like điên đảo",
-        "view khủng", "facebook", "tiktok", "instagram", "youtube",
-        "zalo", "post", "story", "reel", "livestream", "share",
-        "tag", "comment", "like", "follow", "subscribe", "view",
-        "trend", "viral", "hot", "sốt", "bùng nổ", "dậy sóng",
-        "xôn xao", "tranh cãi", "phẫn nộ", "bức xúc", "tức giận",
-        "mạng xã hội", "cộng đồng mạng", "dân mạng", "netizen",
-        "facebooker", "youtuber", "tiktoker", "instagramer", "zaloer",
-        "social media", "social network", "online community", "virtual community"
-    ],
-
-    "risk_exclusivity_claims": [
-        "chỉ có ở đây mới có", "độc quyền", "bí mật được tiết lộ",
-        "chưa ai biết", "thông tin nội bộ", "leaked", "exposed",
-        "behind the scenes", "top secret", "classified", "exclusive",
-        "insider", "confirmed", "official update", "breaking exclusive",
-        "chỉ có tại", "chỉ có ở", "chỉ có trong", "chỉ có tại đây",
-        "chỉ có ở đây", "chỉ có trong đây", "chỉ có tại đây mới có",
-        "chỉ có ở đây mới có", "chỉ có trong đây mới có",
-        "độc quyền", "độc nhất", "độc nhất vô nhị", "độc đáo",
-        "đặc biệt", "đặc sắc", "đặc trưng", "đặc thù", "đặc biệt",
-        "đặc sắc", "đặc trưng", "đặc thù", "đặc biệt", "đặc sắc"
-    ],
-
-    "risk_text_formatting": [
-        "!!!", "???", "!?!", "?!?", "!!", "??", "!?", "?!",
-        "KHẨN CẤP", "CẢNH BÁO", "CHÚ Ý", "QUAN TRỌNG",
-        "NGUY HIỂM", "CẤP BÁCH", "THẢM HỌA", "KHỦNG HOẢNG",
-        "SỐC", "KINH HOÀNG", "RÙNG MÌNH", "ĐAU LÒNG",
-        "PHẪN NỘ", "BỨC XÚC", "TỨC GIẬN", "THẢM KHỐC",
-        "TỬ THẦN", "ÁC MỘNG", "ĐỊA NGỤC", "TẬN THẾ",
-        "CHẤN ĐỘNG", "BÙNG NỔ", "DẬY SÓNG", "XÔN XAO",
-        "CHƯA TỪNG CÓ", "LẦN ĐẦU TIÊN", "KHỦNG KHIẾP",
-        "TỆ HẠI", "ĐÁNG SỢ", "HIẾM GẶP", "ĐỘC NHẤT",
-        "BẤT THƯỜNG", "ĐỘT BIẾN", "LẠ LÙNG", "KỲ QUÁI",
-        "NHUNG NHÚC", "GIÒI BỌ", "ĐÁNG THƯƠNG", "KHỦNG HOẢNG",
-        "XÁO TRỘN", "ÁM ẢNH", "NẶNG NỀ", "DÀI", "GAY GẮT",
-        "TIÊU CỰC", "ĐAU LÒNG", "PHẪN NỘ", "KINH HOÀNG",
-        "RÙNG MÌNH", "SỢ HÃI", "HOẢNG LOẠN", "BÀNG HOÀNG",
-        "SỮNG SỜ", "CHOÁNG VÁNG", "ĐAU ĐỚN", "XÓT XA",
-        "THƯƠNG TÂM", "BI THẢM", "THẢM HỌA", "THẢM KỊCH",
-        "THẢM CẢNH", "THẢM TRẠNG",
-        "⚠️", "❗", "❌", "🚨", "💢", "🔥", "⚡", "💥",
-        "ALERT", "WARNING", "DANGER", "CAUTION",
-        "ATTENTION", "IMPORTANT", "URGENT", "CRITICAL",
-        "EMERGENCY", "BREAKING", "EXCLUSIVE", "SHOCKING",
-        "HORROR", "TERROR", "DEATH", "TRAGEDY",
-        "DISASTER", "CRISIS", "PANIC", "CHAOS",
-        "SCANDAL", "EXPOSED", "LEAKED", "REVEALED",
-        "CONFIRMED", "VERIFIED", "OFFICIAL", "FINAL",
-        "LAST CHANCE", "DON'T MISS", "MUST SEE", "MUST READ",
-        "MUST SHARE", "MUST WATCH", "MUST KNOW", "MUST ACT",
-        "MUST SAVE", "MUST HELP", "MUST STOP", "MUST PREVENT",
-        "MUST AVOID", "MUST ESCAPE", "MUST SURVIVE", "MUST LIVE",
-        "MUST DIE", "MUST KILL", "MUST DESTROY", "MUST END",
-        "MUST START", "MUST BEGIN", "MUST CONTINUE", "MUST GO",
-        "MUST COME", "MUST STAY", "MUST LEAVE", "MUST RETURN",
-        "MUST WAIT", "MUST HURRY", "MUST RUSH", "MUST RUN",
-        "MUST WALK", "MUST STAND", "MUST SIT", "MUST LIE",
-        "MUST SLEEP", "MUST WAKE", "MUST EAT", "MUST DRINK",
-        "MUST BREATHE", "MUST LIVE", "MUST DIE", "MUST SURVIVE"
-    ]
+    "metadata_rules": {
+        "high_share_ratio": {
+            "ratio_threshold": 2.0,
+            "min_likes": 50,
+            "weight": 2.0
+        },
+        "many_hashtags": {
+            "hashtag_threshold": 5,
+            "weight": 1.0
+        },
+        "high_engagement": {
+            "like_threshold": 1000,
+            "comment_threshold": 100,
+            "share_threshold": 500,
+            "weight": 1.5
+        },
+        "suspicious_timing": {
+            "night_hours": [22, 23, 0, 1, 2, 3, 4],
+            "weight": 1.0
+        }
+    }
 }
