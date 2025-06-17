@@ -1,22 +1,34 @@
 import os
-import pandas as pd
+import json
+import re
 import logging
 import sys
-from typing import List, Dict, Tuple
+from typing import Dict, List, Tuple, Any, Optional
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
+import joblib
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, classification_report
+from datetime import datetime
 
 # Thêm thư mục gốc vào sys.path để import từ các module khác trong src
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
 
-# Import các biến đường dẫn và lớp bộ lọc
-from src.config import (
+# Import các biến đường dẫn
+from config import (
     DATA_DIR, RULES_PATH, STOPWORDS_PATH,
-    DATA_HARD_DIR, TRAIN_HARD_FILE, TEST_HARD_FILE,
-    DATA_PROCESSED_DIR
+    DATA_PROCESSED_DIR, TRAIN_CLEANED_FILE, TEST_CLEANED_FILE,
+    RULE_SYSTEM_MODEL_PATH, TRAIN_CONFUSION_MATRIX_PATH, TEST_CONFUSION_MATRIX_PATH,
+    TRAIN_FEATURES_FILE, TEST_FEATURES_FILE,
+    DATA_VISUALIZATION_DIR
 )
-from src.pipeline import RuleBasedFilterFromFile
-from src.data_processing import DataProcessor
+
+# Đường dẫn cho file JSON kết quả
+TRAIN_RESULTS_JSON_PATH = os.path.join(DATA_VISUALIZATION_DIR, 'train_results.json')
+TEST_RESULTS_JSON_PATH = os.path.join(DATA_VISUALIZATION_DIR, 'test_results.json')
 
 # === Cấu hình logging ===
 logging.basicConfig(
@@ -28,224 +40,423 @@ logging.basicConfig(
 )
 logger = logging.getLogger('main')
 
-# === Cấu hình đường dẫn ===
-TRAIN_CLEANED_FILE = os.path.join(DATA_PROCESSED_DIR, 'train_cleaned.csv')
-TEST_CLEANED_FILE = os.path.join(DATA_PROCESSED_DIR, 'test_cleaned.csv')
-
-class RuleBasedClassifier:
-    def __init__(self, rules_path: str):
-        """Khởi tạo bộ phân loại dựa trên luật."""
-        self.rule_filter = RuleBasedFilterFromFile(rules_path=rules_path)
-        logger.info("✅ Đã khởi tạo RuleBasedClassifier")
+class RuleSystem:
+    """Lớp hệ thống luật kép: lọc tin và trích xuất đặc trưng."""
     
-    def classify_batch(self, texts: List[str]) -> Tuple[List[str], Dict[str, pd.DataFrame]]:
+    def __init__(self, rules_path: str):
         """
-        Phân loại một batch văn bản.
+        Khởi tạo hệ thống luật.
         
         Args:
-            texts: Danh sách văn bản cần phân loại
+            rules_path: Đường dẫn đến file JSON chứa các luật
+        """
+        self.rules_path = rules_path
+        self.rules = self._load_rules()
+        self.components = self.rules.get('pattern_components', {})
+        self.percentiles = {}
+        self.is_fitted = False
+        logger.info(f"✅ Đã tải {len(self.components)} thành phần luật từ {rules_path}")
+        logger.info("✅ Đã khởi tạo RuleSystem")
+    
+    def _load_rules(self) -> Dict:
+        """Tải các luật từ file JSON."""
+        try:
+            with open(self.rules_path, 'r', encoding='utf-8') as f:
+                rules = json.load(f)
+            return rules
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi tải luật từ {self.rules_path}: {str(e)}")
+            raise
+    
+    def _is_match(self, text: str, component_name: str) -> bool:
+        """Kiểm tra văn bản có khớp với một component không."""
+        keywords = self.components.get(component_name, {}).get('keywords', [])
+        return any(kw.lower() in text.lower() for kw in keywords)
+    
+    def _is_reliable_real_pattern(self, text: str) -> bool:
+        """
+        Kiểm tra xem văn bản có khớp với mẫu tin tức báo chí không.
+        
+        Args:
+            text: Văn bản cần kiểm tra
             
         Returns:
-            Tuple[List[str], Dict[str, pd.DataFrame]]: 
-                - Danh sách nhãn dự đoán
-                - Dictionary chứa các DataFrame đã phân loại
+            bool: True nếu khớp với mẫu tin tức báo chí
         """
-        # Dự đoán nhãn
-        predictions = []
-        for text in tqdm(texts, desc="Phân loại văn bản"):
-            trust_score, fake_score = self.rule_filter.calculate_scores(text)
-            if trust_score == -1.0:
-                predictions.append('Tin Thật Dễ')
-            elif fake_score == 1.0:
-                predictions.append('Tin Giả Dễ')
+        real_pattern = self.rules['patterns_for_filtering']['reliable_real_pattern']
+        
+        # Kiểm tra các điều kiện bắt buộc
+        must_have = real_pattern['must_have']
+        must_not_have = real_pattern['must_not_have']
+        
+        # Kiểm tra từng điều kiện bắt buộc
+        has_authoritative = self._is_match(text, 'authoritative_source')
+        has_informative = self._is_match(text, 'informative_tone')
+        
+        # Kiểm tra các điều kiện cấm
+        has_pseudoscience = self._is_match(text, 'pseudoscience_hoax')
+        has_scam = self._is_match(text, 'scam_call_to_action')
+        has_spam = self._is_match(text, 'advertisement_spam')
+        has_critical = self._is_match(text, 'critical_tone')
+        
+        # Log chi tiết cho debug
+        logger.debug(f"\nKiểm tra mẫu tin thật:")
+        logger.debug(f"  - Có nguồn tin đáng tin cậy: {has_authoritative}")
+        logger.debug(f"  - Có văn phong báo chí: {has_informative}")
+        logger.debug(f"  - Có dấu hiệu giả khoa học: {has_pseudoscience}")
+        logger.debug(f"  - Có dấu hiệu lừa đảo: {has_scam}")
+        logger.debug(f"  - Có dấu hiệu spam: {has_spam}")
+        logger.debug(f"  - Có dấu hiệu chỉ trích: {has_critical}")
+        
+        # Nếu có bất kỳ dấu hiệu xấu nào, loại bỏ ngay
+        if any([has_pseudoscience, has_scam, has_spam, has_critical]):
+            return False
+        
+        # Phải có CẢ nguồn tin đáng tin cậy VÀ văn phong báo chí
+        if not (has_authoritative and has_informative):
+            return False
+        
+        return True
+    
+    def fit(self, df: pd.DataFrame) -> 'RuleSystem':
+        """
+        'Huấn luyện' bộ luật bằng cách tính toán các giá trị thống kê cần thiết từ dữ liệu train.
+        
+        Args:
+            df: DataFrame chứa dữ liệu train
+            
+        Returns:
+            RuleSystem: Đối tượng RuleSystem đã được fit
+        """
+        logger.info("🔄 Đang tính toán các giá trị thống kê từ dữ liệu train...")
+        
+        # Tính toán các percentiles cho các cột tương tác
+        interaction_cols = ['num_like_post', 'num_comment_post', 'num_share_post']
+        for col in interaction_cols:
+            if col in df.columns:
+                self.percentiles[col] = {
+                    'p25': df[col].quantile(0.25),
+                    'p50': df[col].quantile(0.50),
+                    'p75': df[col].quantile(0.75),
+                    'p90': df[col].quantile(0.90),
+                    'p95': df[col].quantile(0.95),
+                    'p99': df[col].quantile(0.99)
+                }
+        
+        # Tính toán các ngưỡng cho các đặc trưng khác
+        if 'cleaned_message' in df.columns:
+            # Tỷ lệ chữ hoa
+            df['uppercase_ratio'] = df['cleaned_message'].str.findall(r'[A-Z]').str.len() / (df['cleaned_message'].str.len() + 1e-6)
+            self.percentiles['uppercase_ratio'] = {
+                'p75': df['uppercase_ratio'].quantile(0.75),
+                'p90': df['uppercase_ratio'].quantile(0.90),
+                'p95': df['uppercase_ratio'].quantile(0.95)
+            }
+            
+            # Số lượng hashtag
+            df['hashtag_count'] = df['cleaned_message'].str.count('#')
+            self.percentiles['hashtag_count'] = {
+                'p75': df['hashtag_count'].quantile(0.75),
+                'p90': df['hashtag_count'].quantile(0.90),
+                'p95': df['hashtag_count'].quantile(0.95)
+            }
+        
+        self.is_fitted = True
+        logger.info("✅ Đã hoàn thành việc tính toán các giá trị thống kê")
+        return self
+    
+    def save(self, filepath: str):
+        """
+        Lưu toàn bộ đối tượng RuleSystem đã được fit.
+        
+        Args:
+            filepath: Đường dẫn để lưu file
+        """
+        if not self.is_fitted:
+            logger.warning("⚠️ RuleSystem chưa được fit, các giá trị thống kê có thể không chính xác")
+        
+        try:
+            joblib.dump(self, filepath)
+            logger.info(f"✅ Đã lưu đối tượng RuleSystem vào {filepath}")
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi lưu RuleSystem: {str(e)}")
+            raise
+    
+    @classmethod
+    def load(cls, filepath: str) -> 'RuleSystem':
+        """
+        Tải một đối tượng RuleSystem đã được lưu.
+        
+        Args:
+            filepath: Đường dẫn đến file đã lưu
+            
+        Returns:
+            RuleSystem: Đối tượng RuleSystem đã được tải
+        """
+        try:
+            model = joblib.load(filepath)
+            logger.info(f"✅ Đã tải đối tượng RuleSystem từ {filepath}")
+            return model
+        except Exception as e:
+            logger.error(f"❌ Lỗi khi tải RuleSystem: {str(e)}")
+            raise
+    
+    def classify_difficulty(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Phân loại độ khó của tin tức.
+        
+        Args:
+            df: DataFrame chứa dữ liệu
+            
+        Returns:
+            pd.DataFrame: DataFrame đã được phân loại
+        """
+        def get_verdict(row):
+            # Sử dụng post_message gốc, không dùng cleaned_message
+            text = str(row['post_message']).lower()
+            
+            # Kiểm tra các điều kiện cho tin thật dễ
+            is_reliable = self._is_reliable_real_pattern(text)
+            
+            # Kiểm tra các điều kiện cho tin khó
+            has_pseudoscience = self._is_match(text, 'pseudoscience_hoax')
+            has_scam = self._is_match(text, 'scam_call_to_action')
+            has_spam = self._is_match(text, 'advertisement_spam')
+            has_critical = self._is_match(text, 'critical_tone')
+            
+            # Phân loại
+            if is_reliable and not (has_pseudoscience or has_scam or has_spam or has_critical):
+                return 'Tin Thật Dễ'
             else:
-                predictions.append('Tin Khó')
+                return 'Tin Khó'
         
-        # Tạo DataFrame với kết quả
-        df_results = pd.DataFrame({
-            'text': texts,
-            'prediction': predictions
-        })
+        df_copy = df.copy()
+        df_copy['case_difficulty'] = df_copy.apply(get_verdict, axis=1)
         
-        # Phân loại thành các nhóm
-        easy_real = df_results[df_results['prediction'] == 'Tin Thật Dễ']
-        easy_fake = df_results[df_results['prediction'] == 'Tin Giả Dễ']
-        hard = df_results[df_results['prediction'] == 'Tin Khó']
+        # Log thống kê phân loại
+        total = len(df_copy)
+        easy_count = (df_copy['case_difficulty'] == 'Tin Thật Dễ').sum()
+        hard_count = (df_copy['case_difficulty'] == 'Tin Khó').sum()
         
-        return predictions, {
-            'easy_real': easy_real,
-            'easy_fake': easy_fake,
-            'hard': hard
-        }
+        logger.info(f"\nThống kê phân loại:")
+        logger.info(f"  - Tổng số mẫu: {total}")
+        logger.info(f"  - Tin Thật Dễ: {easy_count} ({easy_count/total*100:.1f}%)")
+        logger.info(f"  - Tin Khó: {hard_count} ({hard_count/total*100:.1f}%)")
+        
+        return df_copy
 
-def _calculate_metrics(df: pd.DataFrame, predictions: List[str]) -> Dict[str, float]:
+    def extract_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Tạo các cột đặc trưng số từ các luật cho mô hình ML.
+        
+        Args:
+            df: DataFrame chứa dữ liệu
+            
+        Returns:
+            pd.DataFrame: DataFrame với các đặc trưng mới
+        """
+        if not self.is_fitted:
+            logger.warning("⚠️ RuleSystem chưa được fit, các đặc trưng có thể không chính xác")
+        
+        df_featured = df.copy()
+        # Sử dụng cleaned_message nếu có, ngược lại dùng post_message
+        df_featured['text_for_analysis'] = df_featured.get('cleaned_message', df_featured['post_message'])
+        # Chuyển đổi tất cả giá trị sang string và chuyển về chữ thường
+        df_featured['text_for_analysis'] = df_featured['text_for_analysis'].astype(str)
+        df_featured['text_for_analysis_lower'] = df_featured['text_for_analysis'].str.lower()
+        
+        # 1. Trích xuất điểm từ các component nội dung
+        for comp_name, details in self.components.items():
+            feature_name = f'rule_score_{comp_name}'
+            keywords = details.get('keywords', [])
+            weight = details.get('weight', 0)
+            
+            df_featured[feature_name] = df_featured['text_for_analysis_lower'].apply(
+                lambda text: sum(1 for kw in keywords if kw.lower() in str(text).lower()) * weight
+            )
+        
+        # 2. Xử lý các đặc trưng chất lượng văn bản
+        df_featured['feat_uppercase_ratio'] = df_featured['text_for_analysis'].str.findall(r'[A-Z]').str.len() / (df_featured['text_for_analysis'].str.len() + 1e-6)
+        df_featured['feat_hashtag_count'] = df_featured['text_for_analysis'].str.count('#')
+        df_featured['feat_url_count'] = df_featured['text_for_analysis'].str.count('http|www|<URL>')
+
+        # 3. Trích xuất đặc trưng metadata (tương tác)
+        meta_rules = self.rules.get('metadata_rules', {})
+        
+        # Tỷ lệ share/like
+        share_rule = meta_rules.get('high_share_ratio', {})
+        ratio_threshold = share_rule.get('ratio_threshold', 2.0)
+        min_likes = share_rule.get('min_likes', 50)
+        weight = share_rule.get('weight', 2.0)
+        
+        df_featured['rule_score_high_share_ratio'] = (
+            ((df_featured['num_share_post'] / (df_featured['num_like_post'] + 1)) > ratio_threshold) &
+            (df_featured['num_like_post'] > min_likes)
+        ).astype(int) * weight
+
+        # Số lượng hashtag
+        hashtag_rule = meta_rules.get('many_hashtags', {})
+        hashtag_threshold = hashtag_rule.get('hashtag_threshold', 5)
+        weight = hashtag_rule.get('weight', 1.0)
+        df_featured['rule_score_many_hashtags'] = (df_featured['feat_hashtag_count'] > hashtag_threshold).astype(int) * weight
+
+        # 4. Tính toán tổng điểm fake và real
+        fake_scores = [col for col in df_featured.columns if col.startswith('rule_score_') and col != 'rule_score_authoritative_source']
+        real_scores = ['rule_score_authoritative_source']
+        
+        df_featured['feat_total_fake_score'] = df_featured[fake_scores].sum(axis=1)
+        df_featured['feat_total_real_score'] = df_featured[real_scores].sum(axis=1)
+        
+        # 5. Tính toán tỷ lệ tin thật
+        df_featured['feat_truth_ratio'] = df_featured['feat_total_real_score'] / (df_featured['feat_total_fake_score'] + df_featured['feat_total_real_score'] + 1e-6)
+        
+        # 6. Kiểm tra xung đột
+        df_featured['feat_has_conflict'] = (
+            (df_featured['feat_total_fake_score'] > 0) & 
+            (df_featured['feat_total_real_score'] > 0)
+        ).astype(int)
+        
+        # Xóa các cột tạm thời
+        df_featured = df_featured.drop(['text_for_analysis', 'text_for_analysis_lower'], axis=1)
+        
+        return df_featured
+
+def analyze_and_save_results(df_classified: pd.DataFrame, dataset_name: str, output_path: str, cm_path: str):
     """
-    Tính toán các chỉ số đánh giá.
+    Phân tích kết quả của BỘ LỌC trên các tin được phân loại là DỄ.
+    """
+    logger.info(f"\n=== Phân tích độ chính xác trên tập {dataset_name} (chỉ xét các tin DỄ) ===")
+
+    # BƯỚC QUAN TRỌNG: Lọc ra các tin đã được bộ lọc xử lý
+    df_easy = df_classified[df_classified['case_difficulty'] != 'Tin Khó'].copy()
     
-    Args:
-        df: DataFrame chứa dữ liệu
-        predictions: Danh sách dự đoán
-        
-    Returns:
-        Dict[str, float]: Các chỉ số đánh giá
-    """
-    total_samples = len(df)
-    easy_real_df = df.loc[pd.Series(predictions) == 'Tin Thật Dễ']
-    easy_fake_df = df.loc[pd.Series(predictions) == 'Tin Giả Dễ']
-    hard_df = df.loc[pd.Series(predictions) == 'Tin Khó']
+    if df_easy.empty:
+        logger.warning(f"Không có 'Tin Dễ' nào được tìm thấy trong tập {dataset_name}. Bỏ qua phân tích.")
+        return
 
-    correct_real = (easy_real_df['label'] == 0).sum()
-    correct_fake = (easy_fake_df['label'] == 1).sum()
-    total_correct_easy = correct_real + correct_fake
+    # Tạo nhãn dự đoán từ kết quả của bộ lọc
+    # 0 là Thật, 1 là Giả
+    df_easy['predicted_label'] = df_easy['case_difficulty'].apply(lambda x: 0 if x == 'Tin Thật Dễ' else 1)
 
-    # Thêm thông tin về các trường hợp phân loại sai
-    misclassified_real = easy_real_df[easy_real_df['label'] == 1]['post_message'].tolist()
-    misclassified_fake = easy_fake_df[easy_fake_df['label'] == 0]['post_message'].tolist()
+    y_true = df_easy['label']
+    y_pred = df_easy['predicted_label']
 
-    return {
-        'total_samples': total_samples,
-        'easy_real': len(easy_real_df),
-        'easy_fake': len(easy_fake_df),
-        'hard': len(hard_df),
-        'correct_real': correct_real,
-        'correct_fake': correct_fake,
-        'total_correct_easy': total_correct_easy,
-        'total_easy': len(easy_real_df) + len(easy_fake_df),
-        'misclassified_real': misclassified_real,
-        'misclassified_fake': misclassified_fake
+    # --- Báo cáo ra Console ---
+    report_dict = classification_report(y_true, y_pred, target_names=['Tin Thật (0)', 'Tin Giả (1)'], output_dict=True, zero_division=0)
+    logger.info(f"\nBáo cáo phân loại trên các tin DỄ của tập {dataset_name}:\n" +
+                classification_report(y_true, y_pred, target_names=['Tin Thật (0)', 'Tin Giả (1)'], zero_division=0))
+
+    # --- Vẽ và lưu Ma trận nhầm lẫn ---
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1]) # Chỉ định labels để đảm bảo thứ tự đúng
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=['Dự đoán Thật', 'Dự đoán Giả'], 
+                yticklabels=['Thực tế Thật', 'Thực tế Giả'])
+    plt.title(f'Ma trận nhầm lẫn bộ lọc trên tập {dataset_name} (Tin Dễ)')
+    plt.ylabel('Nhãn Thực tế')
+    plt.xlabel('Nhãn Dự đoán')
+    plt.savefig(cm_path, bbox_inches='tight')
+    plt.close()
+    logger.info(f"✅ Đã lưu ma trận nhầm lẫn vào: {cm_path}")
+
+    # --- Lưu kết quả chi tiết ra file JSON ---
+    results = {
+        'dataset_name': dataset_name,
+        'total_samples_in_set': len(df_classified),
+        'easy_samples_count': len(df_easy),
+        'hard_samples_count': len(df_classified) - len(df_easy),
+        'easy_samples_ratio': f"{len(df_easy) / len(df_classified) * 100:.2f}%" if len(df_classified) > 0 else "0.00%",
+        'classification_report_on_easy_cases': report_dict,
+        'confusion_matrix_on_easy_cases': cm.tolist()
     }
-
-def analyze_and_report(metrics: Dict[str, float], dataset_name: str):
-    """In báo cáo phân tích kết quả."""
-    logger.info(f"\n=== Kết quả phân loại trên tập {dataset_name} ===")
-    
-    # Tính toán số lượng tin dễ và tin khó
-    total_samples = metrics['total_samples']
-    easy_real = metrics['easy_real']
-    easy_fake = metrics['easy_fake']
-    hard = metrics['hard']
-    total_easy = easy_real + easy_fake
-    
-    # Tính độ chính xác cho tin dễ
-    correct_real = metrics['correct_real']
-    correct_fake = metrics['correct_fake']
-    total_correct_easy = correct_real + correct_fake
-    
-    accuracy_real = correct_real / easy_real * 100 if easy_real > 0 else 0
-    accuracy_fake = correct_fake / easy_fake * 100 if easy_fake > 0 else 0
-    accuracy_total = total_correct_easy / total_easy * 100 if total_easy > 0 else 0
-    
-    # In kết quả tổng quan
-    logger.info(f"\nTổng số mẫu: {total_samples}")
-    logger.info(f"\nTin dễ phân biệt: {total_easy} ({total_easy/total_samples*100:.1f}%)")
-    logger.info(f"- Tin Thật Dễ: {easy_real} ({easy_real/total_samples*100:.1f}%)")
-    logger.info(f"- Tin Giả Dễ: {easy_fake} ({easy_fake/total_samples*100:.1f}%)")
-    logger.info(f"\nTin khó: {hard} ({hard/total_samples*100:.1f}%)")
-    
-    if total_easy > 0:
-        logger.info(f"\nĐộ chính xác trên tin dễ: {accuracy_total:.1f}%")
-        logger.info(f"- Tin Thật Dễ: {accuracy_real:.1f}% ({correct_real}/{easy_real})")
-        logger.info(f"- Tin Giả Dễ: {accuracy_fake:.1f}% ({correct_fake}/{easy_fake})")
-        
-        # In chi tiết các trường hợp phân loại sai
-        if dataset_name == "train":
-            logger.info("\n=== Chi tiết các trường hợp phân loại sai ===")
-            
-            # Lấy các trường hợp phân loại sai
-            misclassified_real = metrics.get('misclassified_real', [])
-            misclassified_fake = metrics.get('misclassified_fake', [])
-            
-            if misclassified_real:
-                logger.info("\nTin Thật bị phân loại sai:")
-                for idx, text in enumerate(misclassified_real[:10], 1):  # In 10 mẫu đầu tiên
-                    logger.info(f"\n{idx}. {text[:200]}...")
-            
-            if misclassified_fake:
-                logger.info("\nTin Giả bị phân loại sai:")
-                for idx, text in enumerate(misclassified_fake[:10], 1):  # In 10 mẫu đầu tiên
-                    logger.info(f"\n{idx}. {text[:200]}...")
-
-def process_dataset(df: pd.DataFrame, classifier: RuleBasedClassifier, output_file: str) -> Tuple[List[str], Dict[str, float]]:
-    """
-    Xử lý một tập dữ liệu.
-    
-    Args:
-        df: DataFrame chứa dữ liệu
-        classifier: Bộ phân loại
-        output_file: Đường dẫn file output
-        
-    Returns:
-        Tuple[List[str], Dict[str, float]]: 
-            - Danh sách dự đoán
-            - Các chỉ số đánh giá
-    """
-    # Phân loại
-    predictions, classified_data = classifier.classify_batch(df['post_message'].tolist())
-    
-    # Lưu tin khó
-    if 'hard' in classified_data and not classified_data['hard'].empty:
-        hard_data = df.loc[classified_data['hard'].index].copy()
-        hard_data.to_csv(output_file, index=False, encoding='utf-8')
-        logger.info(f"✅ Đã lưu {len(hard_data)} tin khó vào {output_file}")
-    
-    # Tính toán metrics
-    metrics = _calculate_metrics(df, predictions)
-    
-    return predictions, metrics
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4, ensure_ascii=False)
+    logger.info(f"✅ Đã lưu báo cáo chi tiết vào: {output_path}")
 
 def main():
-    """Hàm chính để chạy bộ lọc, phân tích và lưu kết quả."""
+    """Hàm chính để chạy toàn bộ quy trình."""
     try:
-        # **BƯỚC 1: TẠO THƯ MỤC LƯU TRỮ (NẾU CHƯA CÓ)**
-        os.makedirs(DATA_HARD_DIR, exist_ok=True)
+        # Kiểm tra xem các file đã được làm sạch đã tồn tại chưa
+        if not os.path.exists(TRAIN_CLEANED_FILE) or not os.path.exists(TEST_CLEANED_FILE):
+            logger.error("❌ Không tìm thấy các file dữ liệu đã được làm sạch.")
+            logger.error("Hãy chạy 'src/data_processing.py' trước để tạo các file này.")
+            return
+            
+        # Kiểm tra xem các file có trống không
+        if os.path.getsize(TRAIN_CLEANED_FILE) == 0 or os.path.getsize(TEST_CLEANED_FILE) == 0:
+            logger.error("❌ Các file dữ liệu đã được làm sạch đang trống.")
+            logger.error("Hãy chạy lại 'src/data_processing.py' để tạo dữ liệu.")
+            return
+            
+        # 1. Tải dữ liệu đã được làm sạch từ data_processing.py
+        logger.info("🔄 Đang tải dữ liệu đã được làm sạch từ data_processing.py...")
         
-        # **BƯỚC 2: KHỞI TẠO BỘ PHÂN LOẠI**
-        classifier = RuleBasedClassifier(rules_path=RULES_PATH)
+        # Chỉ định kiểu dữ liệu khi đọc CSV
+        dtype_dict = {
+            'post_message': str,
+            'cleaned_message': str,
+            'text_length': 'Int64',
+            'word_count': 'Int64',
+            'sentence_count': 'Int64',
+            'hashtag_count': 'Int64',
+            'url_count': 'Int64',
+            'stopwords_ratio': float,
+            'compound_word_ratio': float,
+            'num_like_post': 'Int64',
+            'num_comment_post': 'Int64',
+            'num_share_post': 'Int64'
+        }
         
-        # **BƯỚC 3: XỬ LÝ TẬP TRAIN**
-        logger.info("\n=== Xử lý tập train ===")
-        logger.info(f"Đang nạp dữ liệu từ: {TRAIN_CLEANED_FILE}")
-        df_train = pd.read_csv(TRAIN_CLEANED_FILE, encoding='utf-8')
-        logger.info(f"Đã nạp {len(df_train)} mẫu từ {TRAIN_CLEANED_FILE}")
+        train_df = pd.read_csv(TRAIN_CLEANED_FILE, dtype=dtype_dict)
+        test_df = pd.read_csv(TEST_CLEANED_FILE, dtype=dtype_dict)
         
-        train_predictions, train_metrics = process_dataset(
-            df_train, 
-            classifier,
-            TRAIN_HARD_FILE
-        )
-        analyze_and_report(train_metrics, "train")
-
-        # **BƯỚC 4: XỬ LÝ TẬP TEST**
-        logger.info("\n=== Xử lý và đánh giá tập test ===")
-        logger.info(f"Đang nạp dữ liệu từ: {TEST_CLEANED_FILE}")
-        df_test = pd.read_csv(TEST_CLEANED_FILE, encoding='utf-8')
-        logger.info(f"Đã nạp {len(df_test)} mẫu từ {TEST_CLEANED_FILE}")
+        # Kiểm tra xem dữ liệu đã được tiền xử lý chưa
+        required_columns = [
+            'cleaned_message', 'text_length', 'word_count', 'sentence_count',
+            'hashtag_count', 'url_count', 'stopwords_ratio', 'compound_word_ratio'
+        ]
         
-        test_predictions, test_metrics = process_dataset(
-            df_test,
-            classifier,
-            TEST_HARD_FILE
-        )
-        analyze_and_report(test_metrics, "test")
-
-        # **BƯỚC 5: TỔNG KẾT CUỐI CÙNG**
-        logger.info("\n=== Tổng kết kết quả ===")
-        logger.info("\nTập train:")
-        logger.info(f"Tổng số mẫu: {train_metrics['total_samples']}")
-        logger.info(f"Tin Thật Dễ: {train_metrics['easy_real']} ({train_metrics['easy_real']/train_metrics['total_samples']*100:.1f}%)")
-        logger.info(f"Tin Giả Dễ: {train_metrics['easy_fake']} ({train_metrics['easy_fake']/train_metrics['total_samples']*100:.1f}%)")
-        logger.info(f"Tin Khó: {train_metrics['hard']} ({train_metrics['hard']/train_metrics['total_samples']*100:.1f}%)")
+        missing_columns = [col for col in required_columns if col not in train_df.columns]
+        if missing_columns:
+            logger.error(f"❌ Thiếu các cột quan trọng trong dữ liệu: {missing_columns}")
+            logger.error("Hãy chạy lại 'src/data_processing.py' để tạo đầy đủ các cột.")
+            return
+            
+        logger.info(f"✅ Đã tải {len(train_df)} mẫu train và {len(test_df)} mẫu test")
         
-        logger.info("\nTập test:")
-        logger.info(f"Tổng số mẫu: {test_metrics['total_samples']}")
-        logger.info(f"Tin Thật Dễ: {test_metrics['easy_real']} ({test_metrics['easy_real']/test_metrics['total_samples']*100:.1f}%)")
-        logger.info(f"Tin Giả Dễ: {test_metrics['easy_fake']} ({test_metrics['easy_fake']/test_metrics['total_samples']*100:.1f}%)")
-        logger.info(f"Tin Khó: {test_metrics['hard']} ({test_metrics['hard']/test_metrics['total_samples']*100:.1f}%)")
+        # 2. Khởi tạo và huấn luyện hệ thống luật
+        logger.info("🔄 Đang khởi tạo và huấn luyện hệ thống luật...")
+        rule_system = RuleSystem(RULES_PATH)
+        rule_system.fit(train_df)
         
-    except FileNotFoundError as e:
-        logger.error(f"❌ Lỗi không tìm thấy file: {e}. Hãy đảm bảo các file train_cleaned.csv và test_cleaned.csv tồn tại trong {DATA_PROCESSED_DIR}.")
+        # 3. Phân loại độ khó và trích xuất đặc trưng
+        logger.info("🔄 Đang phân loại độ khó và trích xuất đặc trưng...")
+        train_classified = rule_system.classify_difficulty(train_df)
+        test_classified = rule_system.classify_difficulty(test_df)
+        
+        # 4. Trích xuất đặc trưng và lưu kết quả
+        logger.info("🔄 Đang trích xuất đặc trưng...")
+        train_features = rule_system.extract_features(train_classified)
+        test_features = rule_system.extract_features(test_classified)
+        
+        # Lưu các đặc trưng
+        train_features.to_csv(TRAIN_FEATURES_FILE, index=False)
+        test_features.to_csv(TEST_FEATURES_FILE, index=False)
+        logger.info(f"✅ Đã lưu các đặc trưng vào {TRAIN_FEATURES_FILE} và {TEST_FEATURES_FILE}")
+        
+        # 5. Phân tích và lưu kết quả
+        logger.info("🔄 Đang phân tích kết quả...")
+        analyze_and_save_results(train_classified, 'train', TRAIN_RESULTS_JSON_PATH, TRAIN_CONFUSION_MATRIX_PATH)
+        analyze_and_save_results(test_classified, 'test', TEST_RESULTS_JSON_PATH, TEST_CONFUSION_MATRIX_PATH)
+        
+        # 6. Lưu mô hình
+        rule_system.save(RULE_SYSTEM_MODEL_PATH)
+        logger.info(f"✅ Đã lưu mô hình vào {RULE_SYSTEM_MODEL_PATH}")
+        
+        logger.info("✅ Đã hoàn thành toàn bộ quy trình!")
+        
     except Exception as e:
-        logger.error(f"❌ Lỗi không mong muốn xảy ra trong quá trình xử lý: {e}", exc_info=True)
+        logger.error(f"❌ Lỗi trong quy trình: {str(e)}")
         raise
 
 if __name__ == "__main__":
