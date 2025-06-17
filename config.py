@@ -36,9 +36,16 @@ RULES_PATH = os.path.join(CONFIG_DIR, 'rules.json')
 MODELS_DIR = os.path.join(ROOT_DIR, 'models')
 RULE_SYSTEM_MODEL_PATH = os.path.join(MODELS_DIR, 'rule_system.pkl')
 
+# Thư mục lưu mô hình huấn luyện và ensemble
+SAVED_MODELS_DIR = os.path.join(ROOT_DIR, 'saved_models')
+BASE_MODELS_DIR = os.path.join(SAVED_MODELS_DIR, 'base_models')
+ENSEMBLES_DIR = os.path.join(SAVED_MODELS_DIR, 'ensembles')
+PROCESSORS_DIR = os.path.join(SAVED_MODELS_DIR, 'processors')
+
 # Tạo các thư mục nếu chưa tồn tại
 for dir_path in [
     DATA_DIR, DATA_RAW_DIR, DATA_PROCESSED_DIR, DATA_FEATURES_DIR,
-    DATA_VISUALIZATION_DIR, MODELS_DIR, CONFIG_DIR
+    DATA_VISUALIZATION_DIR, MODELS_DIR, CONFIG_DIR,
+    SAVED_MODELS_DIR, BASE_MODELS_DIR, ENSEMBLES_DIR, PROCESSORS_DIR
 ]:
     os.makedirs(dir_path, exist_ok=True) 
