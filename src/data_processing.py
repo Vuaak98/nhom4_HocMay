@@ -551,70 +551,31 @@ def load_stopwords(filepath: str) -> Set[str]:
         logger.error(f"❌ Lỗi khi tải từ dừng: {str(e)}")
         return set()
 
-def main():
-    """Hàm chính để chạy quy trình xử lý dữ liệu."""
-    try:
-        # Tạo thư mục nếu chưa tồn tại
-        os.makedirs(DATA_PROCESSED_DIR, exist_ok=True)
-        
-        # Tải từ dừng một lần duy nhất
-        logger.info(f"Đang tải từ dừng từ {STOPWORDS_PATH}")
-        stopwords = load_stopwords(STOPWORDS_PATH)
-        
-        # Khởi tạo bộ xử lý
-        processor = DataProcessor(default_year=2020)
-        
-        # Xử lý dữ liệu train
-        train_raw = os.path.join(DATA_RAW_DIR, 'train.csv')
-        logger.info(f"Đang đọc dữ liệu train từ {train_raw}")
-        df_train = pd.read_csv(train_raw, encoding='utf-8')
-        
-        # Chuyển đổi kiểu dữ liệu ngay khi đọc
-        df_train['post_message'] = df_train['post_message'].astype(str)
-        logger.info("✅ Đã chuyển đổi cột post_message sang kiểu string")
-        
-        # Fit trên dữ liệu train
-        processor.fit(df_train, stopwords_path=STOPWORDS_PATH, rules_path=RULES_PATH)
-        
-        # Lưu processor đã fit
-        processor_path = os.path.join(DATA_PROCESSED_DIR, 'data_processor.pkl')
-        try:
-            joblib.dump(processor, processor_path)
-            logger.info(f"✅ Đã lưu processor vào {processor_path}")
-        except Exception as e:
-            logger.error(f"❌ Lỗi khi lưu processor: {str(e)}")
-            raise
-        
-        # Xử lý dữ liệu train
-        train_data = processor.transform(df_train, is_training=True)
-        train_data.to_csv(TRAIN_CLEANED_FILE, index=False, encoding='utf-8')
-        logger.info(f"✅ Đã lưu dữ liệu train đã làm sạch vào: {TRAIN_CLEANED_FILE}")
-        
-        # Xử lý dữ liệu test
-        test_raw = os.path.join(DATA_RAW_DIR, 'test.csv')
-        logger.info(f"Đang đọc dữ liệu test từ {test_raw}")
-        df_test = pd.read_csv(test_raw, encoding='utf-8')
-        
-        # Chuyển đổi kiểu dữ liệu ngay khi đọc
-        df_test['post_message'] = df_test['post_message'].astype(str)
-        logger.info("✅ Đã chuyển đổi cột post_message sang kiểu string")
-        
-        # Tải lại processor đã fit
-        try:
-            trained_processor = joblib.load(processor_path)
-            logger.info(f"✅ Đã tải processor từ {processor_path}")
-        except Exception as e:
-            logger.error(f"❌ Lỗi khi tải processor: {str(e)}")
-            raise
-        
-        # Xử lý dữ liệu test
-        test_data = trained_processor.transform(df_test, is_training=False)
-        test_data.to_csv(TEST_CLEANED_FILE, index=False, encoding='utf-8')
-        logger.info(f"✅ Đã lưu dữ liệu test đã làm sạch vào: {TEST_CLEANED_FILE}")
-                
-    except Exception as e:
-        logger.error(f"❌ Lỗi không mong muốn: {str(e)}")
-        raise
+def run_data_processing_workflow(df_train: pd.DataFrame, df_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, 'DataProcessor']:
+    """
+    Hàm workflow chính: nhận DataFrame, trả về DataFrame đã làm sạch và processor đã fit.
+    """
+    stopwords = load_stopwords(STOPWORDS_PATH)
+    processor = DataProcessor()
+    processor.text_processor.stopwords = stopwords
+    processor.fit(df_train, stopwords_path=STOPWORDS_PATH, rules_path=RULES_PATH)
+    train_cleaned = processor.transform(df_train, is_training=True)
+    test_cleaned = processor.transform(df_test, is_training=False)
+    return train_cleaned, test_cleaned, processor
 
-if __name__ == "__main__":
+def main():
+    # Đường dẫn mặc định
+    train_raw_path = os.path.join('data', 'raw', 'train.csv')
+    test_raw_path = os.path.join('data', 'raw', 'test.csv')
+    stopwords_path = os.path.join('config', 'resources', 'vietnamese-stopwords.txt')
+    rules_path = os.path.join('config', 'rules.json')
+    df_train = pd.read_csv(train_raw_path, encoding='utf-8')
+    df_test = pd.read_csv(test_raw_path, encoding='utf-8')
+    train_cleaned, test_cleaned, processor = run_data_processing_workflow(df_train, df_test)
+    # Ghi file nếu chạy từ CLI
+    train_cleaned.to_csv('data/processed/train_cleaned.csv', index=False, encoding='utf-8')
+    test_cleaned.to_csv('data/processed/test_cleaned.csv', index=False, encoding='utf-8')
+    print("✅ Đã lưu dữ liệu đã làm sạch.")
+
+if __name__ == '__main__':
     main()

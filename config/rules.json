@@ -60,7 +60,8 @@
                 "chữa khỏi virus", "chữa khỏi viêm phổi",
                 "chữa khỏi viêm họng", "chữa khỏi viêm xoang",
                 "chữa khỏi viêm mũi", "chữa khỏi viêm tai",
-                "chữa khỏi viêm mắt", "chữa khỏi viêm da"
+                "chữa khỏi viêm mắt", "chữa khỏi viêm da",
+                "erythromycine", "phác đồ", "tự chữa", "mua để dự phòng", "khẳng định dịch sẽ hết", "dự đoán hết dịch", "chuyên gia nước ngoài", "bác sĩ nước ngoài", "gs người pháp", "không cần xét nghiệm", "không cần cách ly"
             ],
             "weight": 10.0
         },
@@ -73,7 +74,8 @@
                 "bán sỉ", "miễn phí vận chuyển", "giảm giá sốc", 
                 "giá tốt nhất", "giá rẻ nhất", "giá gốc", "giá sỉ",
                 "giá lẻ", "giá thị trường", "giá đặc biệt",
-                "giá hời", "giá rẻ bất ngờ", "giá sốc"
+                "giá hời", "giá rẻ bất ngờ", "giá sốc",
+                "mua để dự phòng", "dự phòng mỗi người 1 liều"
             ],
             "weight": 8.0
         },
@@ -112,7 +114,8 @@
                 "theo nguồn tin riêng", "theo một số chuyên gia",
                 "theo một số người dân", "theo một số nhà khoa học",
                 "theo một số người", "theo một số nguồn",
-                "theo một số thông tin", "theo một số tin đồn"
+                "theo một số thông tin", "theo một số tin đồn",
+                "theo facebook", "theo mạng xã hội", "người dân cho biết", "bạn tôi kể", "tôi nghe nói", "tin đồn", "theo một số người", "theo một số nguồn tin"
             ],
             "weight": 3.0
         },
@@ -125,7 +128,8 @@
                 "gây chấn động", "gây bất ngờ", "gây kinh ngạc",
                 "gây xôn xao", "gây tranh cãi", "gây bức xúc",
                 "gây phẫn nộ", "gây bất bình", "gây phản đối",
-                "gây lo ngại", "gây hoang mang", "gây hoảng loạn"
+                "gây lo ngại", "gây hoang mang", "gây hoảng loạn",
+                "vạch trần", "che giấu", "bằng chứng là", "không xác định được kết quả", "vote bỏ tù", "lố bịch", "vô văn hóa", "ngông", "chửi bới", "xuyên tạc", "thao túng", "khối u nhọt", "kích động", "giàu có", "búng tay", "ngông cuồng"
             ],
             "weight": 2.0
         },
@@ -136,7 +140,8 @@
                 "bị tố lừa", "chúa chổm", "ngạo nghễ", "vô trách nhiệm",
                 "thiếu chuyên nghiệp", "thiếu minh bạch", "thiếu công bằng",
                 "thiếu khách quan", "thiếu trung thực", "thiếu đạo đức",
-                "thiếu tôn trọng", "thiếu nghiêm túc", "thiếu chuẩn mực"
+                "thiếu tôn trọng", "thiếu nghiêm túc", "thiếu chuẩn mực",
+                "che giấu", "vạch trần", "bằng chứng là", "không xác định được kết quả", "không minh bạch", "không rõ ràng", "bị cáo", "bị can", "buộc tội", "trách nhiệm pháp luật"
             ],
             "weight": 2.0
         },
@@ -163,6 +168,13 @@
                 "phải ngay", "phải lập tức", "phải tức thì"
             ],
             "weight": 4.0
+        },
+        "fake_policy": {
+            "comment": "Các tin giả về chính sách, quy định pháp luật bịa đặt.",
+            "keywords": [
+                "phạt tiền", "xử phạt", "quyết định xử phạt", "chính phủ phê duyệt", "chương trình điều chỉnh mức sinh", "quy định mới", "luật mới", "bắt buộc", "cấm", "bắt giữ", "bắt tạm giam"
+            ],
+            "weight": 5.0
         }
     },
     
@@ -193,7 +205,8 @@
                 "pseudoscience_hoax", 
                 "scam_call_to_action",
                 "advertisement_spam",
-                "critical_tone"
+                "critical_tone",
+                "fake_policy"
             ]
         }
     },

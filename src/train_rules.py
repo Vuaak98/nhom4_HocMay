@@ -21,14 +21,18 @@ sys.path.append(BASE_DIR)
 from config import (
     DATA_DIR, RULES_PATH, STOPWORDS_PATH,
     DATA_PROCESSED_DIR, TRAIN_CLEANED_FILE, TEST_CLEANED_FILE,
-    RULE_SYSTEM_MODEL_PATH, TRAIN_CONFUSION_MATRIX_PATH, TEST_CONFUSION_MATRIX_PATH,
+    RULE_SYSTEM_PATH, TRAIN_CONFUSION_MATRIX_PATH, TEST_CONFUSION_MATRIX_PATH,
     TRAIN_FEATURES_FILE, TEST_FEATURES_FILE,
-    DATA_VISUALIZATION_DIR
+    VISUALIZATION_DIR
 )
 
 # Đường dẫn cho file JSON kết quả
-TRAIN_RESULTS_JSON_PATH = os.path.join(DATA_VISUALIZATION_DIR, 'train_results.json')
-TEST_RESULTS_JSON_PATH = os.path.join(DATA_VISUALIZATION_DIR, 'test_results.json')
+TRAIN_RESULTS_JSON_PATH = os.path.join(VISUALIZATION_DIR, 'train_results.json')
+TEST_RESULTS_JSON_PATH = os.path.join(VISUALIZATION_DIR, 'test_results.json')
+
+# Đường dẫn mới cho file log mistake
+MISSED_FAKES_PATH = os.path.join(VISUALIZATION_DIR, 'missed_fakes.json')
+MISSED_FAKES_TRAIN_PATH = os.path.join(VISUALIZATION_DIR, 'missed_fakes_train.json')
 
 # === Cấu hình logging ===
 logging.basicConfig(
@@ -276,7 +280,7 @@ class RuleSystem:
             )
         
         # 2. Xử lý các đặc trưng chất lượng văn bản
-        df_featured['feat_uppercase_ratio'] = df_featured['text_for_analysis'].str.findall(r'[A-Z]').str.len() / (df_featured['text_for_analysis'].str.len() + 1e-6)
+        df_featured['uppercase_ratio'] = df_featured['text_for_analysis'].str.findall(r'[A-Z]').str.len() / (df_featured['text_for_analysis'].str.len() + 1e-6)
         df_featured['feat_hashtag_count'] = df_featured['text_for_analysis'].str.count('#')
         df_featured['feat_url_count'] = df_featured['text_for_analysis'].str.count('http|www|<URL>')
 
@@ -373,91 +377,29 @@ def analyze_and_save_results(df_classified: pd.DataFrame, dataset_name: str, out
         json.dump(results, f, indent=4, ensure_ascii=False)
     logger.info(f"✅ Đã lưu báo cáo chi tiết vào: {output_path}")
 
-def main():
-    """Hàm chính để chạy toàn bộ quy trình."""
-    try:
-        # Kiểm tra xem các file đã được làm sạch đã tồn tại chưa
-        if not os.path.exists(TRAIN_CLEANED_FILE) or not os.path.exists(TEST_CLEANED_FILE):
-            logger.error("❌ Không tìm thấy các file dữ liệu đã được làm sạch.")
-            logger.error("Hãy chạy 'src/data_processing.py' trước để tạo các file này.")
-            return
-            
-        # Kiểm tra xem các file có trống không
-        if os.path.getsize(TRAIN_CLEANED_FILE) == 0 or os.path.getsize(TEST_CLEANED_FILE) == 0:
-            logger.error("❌ Các file dữ liệu đã được làm sạch đang trống.")
-            logger.error("Hãy chạy lại 'src/data_processing.py' để tạo dữ liệu.")
-            return
-            
-        # 1. Tải dữ liệu đã được làm sạch từ data_processing.py
-        logger.info("🔄 Đang tải dữ liệu đã được làm sạch từ data_processing.py...")
-        
-        # Chỉ định kiểu dữ liệu khi đọc CSV
-        dtype_dict = {
-            'post_message': str,
-            'cleaned_message': str,
-            'text_length': 'Int64',
-            'word_count': 'Int64',
-            'sentence_count': 'Int64',
-            'hashtag_count': 'Int64',
-            'url_count': 'Int64',
-            'stopwords_ratio': float,
-            'compound_word_ratio': float,
-            'num_like_post': 'Int64',
-            'num_comment_post': 'Int64',
-            'num_share_post': 'Int64'
-        }
-        
-        train_df = pd.read_csv(TRAIN_CLEANED_FILE, dtype=dtype_dict)
-        test_df = pd.read_csv(TEST_CLEANED_FILE, dtype=dtype_dict)
-        
-        # Kiểm tra xem dữ liệu đã được tiền xử lý chưa
-        required_columns = [
-            'cleaned_message', 'text_length', 'word_count', 'sentence_count',
-            'hashtag_count', 'url_count', 'stopwords_ratio', 'compound_word_ratio'
-        ]
-        
-        missing_columns = [col for col in required_columns if col not in train_df.columns]
-        if missing_columns:
-            logger.error(f"❌ Thiếu các cột quan trọng trong dữ liệu: {missing_columns}")
-            logger.error("Hãy chạy lại 'src/data_processing.py' để tạo đầy đủ các cột.")
-            return
-            
-        logger.info(f"✅ Đã tải {len(train_df)} mẫu train và {len(test_df)} mẫu test")
-        
-        # 2. Khởi tạo và huấn luyện hệ thống luật
-        logger.info("🔄 Đang khởi tạo và huấn luyện hệ thống luật...")
-        rule_system = RuleSystem(RULES_PATH)
-        rule_system.fit(train_df)
-        
-        # 3. Phân loại độ khó và trích xuất đặc trưng
-        logger.info("🔄 Đang phân loại độ khó và trích xuất đặc trưng...")
-        train_classified = rule_system.classify_difficulty(train_df)
-        test_classified = rule_system.classify_difficulty(test_df)
-        
-        # 4. Trích xuất đặc trưng và lưu kết quả
-        logger.info("🔄 Đang trích xuất đặc trưng...")
-        train_features = rule_system.extract_features(train_classified)
-        test_features = rule_system.extract_features(test_classified)
-        
-        # Lưu các đặc trưng
-        train_features.to_csv(TRAIN_FEATURES_FILE, index=False)
-        test_features.to_csv(TEST_FEATURES_FILE, index=False)
-        logger.info(f"✅ Đã lưu các đặc trưng vào {TRAIN_FEATURES_FILE} và {TEST_FEATURES_FILE}")
-        
-        # 5. Phân tích và lưu kết quả
-        logger.info("🔄 Đang phân tích kết quả...")
-        analyze_and_save_results(train_classified, 'train', TRAIN_RESULTS_JSON_PATH, TRAIN_CONFUSION_MATRIX_PATH)
-        analyze_and_save_results(test_classified, 'test', TEST_RESULTS_JSON_PATH, TEST_CONFUSION_MATRIX_PATH)
-        
-        # 6. Lưu mô hình
-        rule_system.save(RULE_SYSTEM_MODEL_PATH)
-        logger.info(f"✅ Đã lưu mô hình vào {RULE_SYSTEM_MODEL_PATH}")
-        
-        logger.info("✅ Đã hoàn thành toàn bộ quy trình!")
-        
-    except Exception as e:
-        logger.error(f"❌ Lỗi trong quy trình: {str(e)}")
-        raise
+def run_rules_workflow(train_cleaned_df: pd.DataFrame, test_cleaned_df: pd.DataFrame) -> tuple:
+    """
+    Hàm workflow chính: nhận DataFrame đã làm sạch, trả về các DataFrame đặc trưng và rule_system đã fit.
+    """
+    rule_system = RuleSystem(RULES_PATH)
+    rule_system.fit(train_cleaned_df)
+    train_classified = rule_system.classify_difficulty(train_cleaned_df)
+    test_classified = rule_system.classify_difficulty(test_cleaned_df)
+    train_features = rule_system.extract_features(train_classified)
+    test_features = rule_system.extract_features(test_classified)
+    return train_features, test_features, rule_system, train_classified, test_classified
 
-if __name__ == "__main__":
+def main():
+    # Đường dẫn mặc định
+    train_cleaned_path = os.path.join('data', 'processed', 'train_cleaned.csv')
+    test_cleaned_path = os.path.join('data', 'processed', 'test_cleaned.csv')
+    train_cleaned_df = pd.read_csv(train_cleaned_path, encoding='utf-8')
+    test_cleaned_df = pd.read_csv(test_cleaned_path, encoding='utf-8')
+    train_features, test_features, rule_system, train_classified, test_classified = run_rules_workflow(train_cleaned_df, test_cleaned_df)
+    # Ghi file nếu chạy từ CLI
+    train_features.to_csv('data/features/train_features.csv', index=False, encoding='utf-8')
+    test_features.to_csv('data/features/test_features.csv', index=False, encoding='utf-8')
+    print("✅ Đã lưu đặc trưng rule.")
+
+if __name__ == '__main__':
     main() 

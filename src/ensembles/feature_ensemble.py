@@ -1,4 +1,4 @@
-from models.cnn_model import extract_cnn_features
+from src.models.cnn_model import extract_cnn_features
 import numpy as np
 
 class FeatureEnsemble:

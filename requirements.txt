@@ -7,3 +7,6 @@ seaborn
 tqdm
 imbalanced-learn
 pyvi
+wheel
+Cython
+streamlit

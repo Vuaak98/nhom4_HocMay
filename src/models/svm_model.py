@@ -5,7 +5,7 @@ from sklearn.pipeline import Pipeline
 def train_svm(X_train_features, y_train):
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
-        ('svm', SVC(kernel='rbf', probability=True, C=1.0, gamma='scale'))
+        ('svm', SVC(kernel='rbf', probability=True, C=1.0, gamma='scale', class_weight='balanced'))
     ])
     pipeline.fit(X_train_features, y_train)
     return pipeline
